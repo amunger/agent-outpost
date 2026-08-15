@@ -10,6 +10,7 @@ install -d -m 0755 /etc/apt/keyrings
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   ca-certificates \
+  bubblewrap \
   curl \
   git \
   gnupg \

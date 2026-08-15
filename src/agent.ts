@@ -59,6 +59,7 @@ export class CopilotAgent implements AgentController {
         clientName: "agent-outpost",
         workingDirectory: this.#workspace,
         streaming: true,
+        enableExperimentalMode: true,
         enableConfigDiscovery: true,
         onPermissionRequest: createPermissionHandler(this.#workspace, this.#allowedGitRemote),
         systemMessage: {

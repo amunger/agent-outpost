@@ -87,6 +87,10 @@ Start an interactive Copilot session and open `/sandbox`. Confirm:
 - Git authentication is enabled.
 - GitHub CLI authentication inside the sandbox is disabled.
 
+The production bootstrap installs Bubblewrap, the Linux backend required by
+Copilot's local sandbox. Agent Outpost also opts its SDK session into
+experimental runtime features so the saved sandbox policy is applied.
+
 Local sandboxing is currently a GitHub public-preview feature. The application
 also enforces a deny-by-default SDK permission handler, rejects every sandbox
 bypass request, and runs inside a hardened systemd service. Do not proceed if
