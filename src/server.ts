@@ -11,8 +11,8 @@ const config = loadConfig();
 await mkdir(config.workspace, { recursive: true });
 await mkdir(config.dataDirectory, { recursive: true });
 
-using eventStore = new EventStore(config.dataDirectory);
-using resourceMonitor = new ResourceMonitor();
+const eventStore = new EventStore(config.dataDirectory);
+const resourceMonitor = new ResourceMonitor();
 const eventHub = new SseHub();
 const agent = new CopilotAgent({
   workspace: config.workspace,
@@ -42,8 +42,15 @@ async function shutdown(signal: string): Promise<void> {
   stopping = true;
   console.log(`Received ${signal}; shutting down`);
   eventHub.close();
-  server.close();
-  await agent.stop();
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+  try {
+    await agent.stop();
+  } finally {
+    resourceMonitor[Symbol.dispose]();
+    eventStore[Symbol.dispose]();
+  }
 }
 
 process.once("SIGINT", () => {
