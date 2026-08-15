@@ -10,7 +10,7 @@ Group=agent-outpost
 WorkingDirectory=/opt/agent-outpost/current
 EnvironmentFile=/etc/agent-outpost/agent-outpost.env
 Environment=NODE_ENV=production
-ExecStart=/usr/bin/node --enable-source-maps dist/server.js
+ExecStart=/usr/bin/node --enable-source-maps dist/src/server.js
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
