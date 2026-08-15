@@ -24,7 +24,10 @@ fi
 
 release_id=$(date -u +%Y%m%d%H%M%S)
 release_directory="/opt/agent-outpost/releases/${release_id}"
-previous_release=$(readlink -f /opt/agent-outpost/current || true)
+previous_release=
+if [[ -L /opt/agent-outpost/current ]]; then
+  previous_release=$(readlink -f /opt/agent-outpost/current || true)
+fi
 install -d -o agent-outpost -g agent-outpost -m 0755 "${release_directory}"
 
 cd "${source_directory}"
