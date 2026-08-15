@@ -1,0 +1,28 @@
+[Unit]
+Description=Agent Outpost mobile control service
+After=network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
+
+[Service]
+Type=simple
+User=agent-outpost
+Group=agent-outpost
+WorkingDirectory=/opt/agent-outpost/current
+EnvironmentFile=/etc/agent-outpost/agent-outpost.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node --enable-source-maps dist/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/agent-outpost /srv/agent-outpost/workspace
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#111827">
+    <title>Agent Outpost</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" type="module"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Agent Outpost</p>
+          <h1>Mobile agent</h1>
+        </div>
+        <span id="state" class="state" data-state="starting">Starting</span>
+      </header>
+
+      <details class="resources">
+        <summary>Dev box status</summary>
+        <div class="resource-grid" aria-live="polite">
+          <div><span>CPU</span><strong id="cpu">--</strong></div>
+          <div><span>Memory</span><strong id="memory">--</strong></div>
+          <div><span>Disk</span><strong id="disk">--</strong></div>
+          <div><span>Load</span><strong id="load">--</strong></div>
+        </div>
+      </details>
+
+      <section id="timeline" class="timeline" aria-label="Conversation" aria-live="polite"></section>
+
+      <form id="composer" class="composer">
+        <label for="message">Message the agent</label>
+        <textarea id="message" name="message" rows="3" maxlength="20000" required></textarea>
+        <div class="actions">
+          <button id="cancel" class="secondary" type="button">Stop</button>
+          <button id="send" type="submit">Send</button>
+        </div>
+        <p id="error" class="error" role="alert"></p>
+      </form>
+    </main>
+  </body>
+</html>
