@@ -4,6 +4,7 @@ const chatEntries = document.querySelector("#chat-entries");
 const backToChats = document.querySelector("#back-to-chats");
 const stateElement = document.querySelector("#state");
 const timeline = document.querySelector("#timeline");
+const scrollToBottomButton = document.querySelector("#scroll-to-bottom");
 const composer = document.querySelector("#composer");
 const messageInput = document.querySelector("#message");
 const sendButton = document.querySelector("#send");
@@ -25,19 +26,29 @@ assertElement(chatEntries, "#chat-entries");
 assertElement(backToChats, "#back-to-chats");
 assertElement(stateElement, "#state");
 assertElement(timeline, "#timeline");
+assertElement(scrollToBottomButton, "#scroll-to-bottom");
 assertElement(composer, "#composer");
 assertElement(messageInput, "#message");
 assertElement(sendButton, "#send");
 assertElement(cancelButton, "#cancel");
 assertElement(errorElement, "#error");
 
-function scrollTimelineToBottom() {
-  timeline.scrollTop = timeline.scrollHeight;
+function scrollTimelineToBottom(behavior = "auto") {
+  timeline.scrollTo({ top: timeline.scrollHeight, behavior });
 }
 
-timeline.addEventListener("scroll", () => {
+function updateScrollToBottomButton() {
   const distanceFromBottom = timeline.scrollHeight - timeline.clientHeight - timeline.scrollTop;
+  const isFarFromBottom = timeline.clientHeight > 0 && distanceFromBottom > timeline.clientHeight;
+  scrollToBottomButton.hidden = !isFarFromBottom;
   autoScrollTimeline = distanceFromBottom <= 32;
+}
+
+timeline.addEventListener("scroll", updateScrollToBottomButton);
+scrollToBottomButton.addEventListener("click", () => {
+  autoScrollTimeline = true;
+  scrollTimelineToBottom("smooth");
+  updateScrollToBottomButton();
 });
 
 function setState(state) {
@@ -209,6 +220,16 @@ function showChatView() {
   chatView.hidden = false;
 }
 
+function scrollTimelineAfterLayout() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      autoScrollTimeline = true;
+      scrollTimelineToBottom();
+      updateScrollToBottomButton();
+    });
+  });
+}
+
 function showChatList() {
   closeEvents();
   chatView.hidden = true;
@@ -220,7 +241,7 @@ async function openChat() {
   showChatView();
   autoScrollTimeline = true;
   const snapshot = await loadSession();
-  scrollTimelineToBottom();
+  scrollTimelineAfterLayout();
   connectEvents(snapshot.events.at(-1)?.id || 0);
 }
 
@@ -230,7 +251,7 @@ async function loadSession() {
   snapshot.events.forEach(handleEvent);
   setState(snapshot.state);
   autoScrollTimeline = true;
-  scrollTimelineToBottom();
+  scrollTimelineAfterLayout();
   return snapshot;
 }
 
