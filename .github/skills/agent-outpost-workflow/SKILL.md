@@ -1,13 +1,21 @@
 ---
 name: agent-outpost-workflow
-description: Use when publishing and deploying Agent Outpost changes or creating issues from the mobile agent.
+description: Use when acting as the Agent Outpost operator - publishing, deploying, filing issues, editing files, or capturing screenshots directly on the running mobile agent. (Operator role; see the external-maintainer skill for outside contributions.)
 ---
 
-# Agent Outpost Workflow
+# Agent Outpost Operator Workflow
 
-Use the typed tools in this procedure. Do not substitute raw `git commit`,
-`git push`, or `gh issue create` shell commands; the shell policy intentionally
-rejects those privileged transitions.
+This skill is for the **operator role**: the persistent Copilot session
+running inside Agent Outpost itself, working directly in the deployed
+workspace on behalf of the one developer using the mobile app. Use the typed
+tools in this procedure. Do not substitute raw `git commit`, `git push`, or
+`gh issue create` shell commands; the shell policy intentionally rejects those
+privileged transitions.
+
+See the `external-maintainer` skill instead if you are contributing to this
+repository from outside the running Agent Outpost instance (for example, a
+separate Copilot coding agent working a GitHub issue or pull request against
+this codebase without operator tool access).
 
 ## Publish and deploy changes
 
@@ -68,14 +76,22 @@ Return the issue URL to the user. Do not run `gh issue create` through the shell
 Both tools reject `.git`, parent traversal, symbolic links, ambiguous
 replacements, existing create targets, and files over their size limits.
 
-## Capture the live UI
+## Capture and share the live UI
 
 Call `capture_agent_outpost_screenshot` with `viewport: "mobile"` for normal
 phone validation or `"desktop"` for a wide layout. Set `fullPage: true` only
 when the entire conversation is needed.
 
-Return the `/api/artifacts/...png` URL to the user. The artifact endpoint is
-available only through the authenticated Agent Outpost API.
+The tool publishes the screenshot directly into the conversation timeline as
+an inline image artifact event; it does not require the operator to paste a
+URL into a chat message. Simply confirm to the user that the screenshot is
+shown above. If `OUTPOST_PUBLIC_BASE_URL` is configured, the artifact also
+includes an absolute Tailscale URL fallback for opening the full image outside
+the current page.
+
+Use this whenever a phone user asks in plain language to see what a change
+looks like (for example, "show me what the change looks like" or "can I see a
+screenshot").
 
 ## Verification
 

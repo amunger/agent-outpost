@@ -11,6 +11,7 @@ export interface OutpostConfig {
   readonly githubRepository?: string;
   readonly deploymentRequestDirectory: string;
   readonly artifactDirectory: string;
+  readonly publicBaseUrl?: string;
   readonly sessionId: string;
   readonly model: string;
   readonly production: boolean;
@@ -33,6 +34,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Outpos
   const allowedTailscaleUser = environment.OUTPOST_ALLOWED_TAILSCALE_USER?.trim().toLowerCase();
   const allowedGitRemote = environment.OUTPOST_ALLOWED_GIT_REMOTE?.trim();
   const githubRepository = environment.OUTPOST_GITHUB_REPOSITORY?.trim();
+  const publicBaseUrl = environment.OUTPOST_PUBLIC_BASE_URL?.trim().replace(/\/+$/, "");
   const production = environment.NODE_ENV === "production";
   if (production && !allowedTailscaleUser) {
     throw new Error("OUTPOST_ALLOWED_TAILSCALE_USER is required when NODE_ENV=production");
@@ -58,6 +60,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Outpos
       "./data/deploy-requests",
     ),
     artifactDirectory: requiredPath(environment.OUTPOST_ARTIFACT_DIR, "./data/artifacts"),
+    ...(publicBaseUrl ? { publicBaseUrl } : {}),
     sessionId: environment.OUTPOST_SESSION_ID?.trim() || "agent-outpost-main",
     model: environment.OUTPOST_MODEL?.trim() || "auto",
     production,

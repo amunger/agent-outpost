@@ -4,6 +4,7 @@ export type OutpostEventKind =
   | "user.message"
   | "assistant.message"
   | "assistant.delta"
+  | "assistant.artifact"
   | "session.state"
   | "session.error"
   | "system.notice";
@@ -17,6 +18,12 @@ export interface OutpostEventPayloads {
   };
   readonly "assistant.delta": {
     readonly content: string;
+  };
+  readonly "assistant.artifact": {
+    readonly caption: string;
+    readonly url: string;
+    readonly absoluteUrl?: string;
+    readonly kind: "screenshot";
   };
   readonly "session.state": {
     readonly state: AgentState;

@@ -129,9 +129,13 @@ async function serveStatic(
     throw error;
   }
 
+  const noCacheExtensions = new Set([".html", ".js", ".css"]);
   response.statusCode = 200;
   response.setHeader("Content-Type", contentTypes[extname(candidate)] ?? "application/octet-stream");
-  response.setHeader("Cache-Control", relativePath === "index.html" ? "no-cache" : "public, max-age=3600");
+  response.setHeader(
+    "Cache-Control",
+    noCacheExtensions.has(extname(candidate)) ? "no-cache" : "public, max-age=3600",
+  );
   createReadStream(candidate).pipe(response);
 }
 

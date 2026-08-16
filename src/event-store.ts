@@ -19,6 +19,7 @@ interface EventRow {
 const storedKinds = new Set<OutpostEventKind>([
   "user.message",
   "assistant.message",
+  "assistant.artifact",
   "session.state",
   "session.error",
   "system.notice",
@@ -84,6 +85,21 @@ function parseRow(row: EventRow): OutpostEvent {
         break;
       }
       return { id: row.id, kind: row.kind, createdAt: row.created_at, payload: { message } };
+    }
+    case "assistant.artifact": {
+      const caption = stringProperty(payload, "caption");
+      const url = stringProperty(payload, "url");
+      const artifactKind = stringProperty(payload, "kind");
+      if (caption === undefined || url === undefined || artifactKind !== "screenshot") {
+        break;
+      }
+      const absoluteUrl = stringProperty(payload, "absoluteUrl");
+      return {
+        id: row.id,
+        kind: row.kind,
+        createdAt: row.created_at,
+        payload: { caption, url, kind: "screenshot", ...(absoluteUrl ? { absoluteUrl } : {}) },
+      };
     }
   }
 

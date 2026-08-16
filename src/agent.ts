@@ -25,6 +25,7 @@ export interface CopilotAgentOptions {
   readonly deploymentRequestDirectory: string;
   readonly githubRepository?: string;
   readonly artifactDirectory: string;
+  readonly publicBaseUrl?: string;
   readonly tailscaleUser?: string;
   readonly eventStore: EventStore;
   readonly eventHub: SseHub;
@@ -43,6 +44,7 @@ export class CopilotAgent implements AgentController {
   readonly #deploymentRequestDirectory: string;
   readonly #githubRepository: string | undefined;
   readonly #artifactDirectory: string;
+  readonly #publicBaseUrl: string | undefined;
   readonly #tailscaleUser: string | undefined;
   readonly #eventStore: EventStore;
   readonly #eventHub: SseHub;
@@ -59,6 +61,7 @@ export class CopilotAgent implements AgentController {
     this.#deploymentRequestDirectory = options.deploymentRequestDirectory;
     this.#githubRepository = options.githubRepository;
     this.#artifactDirectory = options.artifactDirectory;
+    this.#publicBaseUrl = options.publicBaseUrl;
     this.#tailscaleUser = options.tailscaleUser;
     this.#eventStore = options.eventStore;
     this.#eventHub = options.eventHub;
@@ -97,6 +100,9 @@ export class CopilotAgent implements AgentController {
               createScreenshotTool({
                 artifactDirectory: this.#artifactDirectory,
                 tailscaleUser: this.#tailscaleUser,
+                ...(this.#publicBaseUrl ? { publicBaseUrl: this.#publicBaseUrl } : {}),
+                eventStore: this.#eventStore,
+                eventHub: this.#eventHub,
               }),
             ];
       const commonConfig = {
@@ -116,7 +122,8 @@ export class CopilotAgent implements AgentController {
             "Use publish_agent_outpost_changes instead of shell git commit or push commands. " +
             "Use create_agent_outpost_issue instead of the gh shell command. " +
             "If apply_patch is unavailable, use replace_workspace_text or create_workspace_file. " +
-            "Use capture_agent_outpost_screenshot for visual UI validation. " +
+            "Use capture_agent_outpost_screenshot for visual UI validation; it publishes the image " +
+            "directly into the conversation, so do not repeat the artifact URL as plain text. " +
             "After publishing a validated commit to agent/current, call deploy_agent_outpost with the returned commit SHA. " +
             "Tell the user immediately when deployment has been scheduled.",
         },

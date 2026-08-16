@@ -71,6 +71,31 @@ function renderContent(container, content) {
   }
 }
 
+function appendArtifactMessage(role, artifact, createdAt) {
+  const article = document.createElement("article");
+  article.className = "message";
+  article.dataset.role = role;
+  const metadata = document.createElement("small");
+  metadata.textContent = `${role === "user" ? "You" : "Agent"} · ${new Date(createdAt).toLocaleTimeString()}`;
+  const caption = document.createElement("div");
+  caption.textContent = artifact.caption;
+  const image = document.createElement("img");
+  image.className = "screenshot";
+  image.src = artifact.url;
+  image.alt = artifact.caption;
+  image.loading = "lazy";
+  const link = document.createElement("a");
+  link.href = artifact.absoluteUrl || artifact.url;
+  link.textContent = "Open full image";
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  article.append(metadata, caption, image, link);
+  timeline.append(article);
+  if (autoScrollTimeline) {
+    scrollTimelineToBottom();
+  }
+}
+
 function appendMessage(role, content, createdAt, allowEmpty = false) {
   if (!allowEmpty && role !== "user" && !content.trim()) {
     return;
@@ -122,6 +147,9 @@ function handleEvent(event) {
     case "system.notice":
       appendMessage("assistant", event.payload.message, event.createdAt);
       break;
+    case "assistant.artifact":
+      appendArtifactMessage("assistant", event.payload, event.createdAt);
+      break;
   }
 }
 
@@ -148,6 +176,7 @@ function connectEvents(after) {
     "user.message",
     "assistant.message",
     "assistant.delta",
+    "assistant.artifact",
     "session.state",
     "session.error",
     "system.notice",

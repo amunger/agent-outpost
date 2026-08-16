@@ -35,6 +35,8 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
   mkdirSync(publicDirectory);
   mkdirSync(artifactDirectory);
   writeFileSync(join(publicDirectory, "index.html"), "<h1>Outpost</h1>");
+  writeFileSync(join(publicDirectory, "app.js"), "console.log('outpost');");
+  writeFileSync(join(publicDirectory, "styles.css"), "body { color: red; }");
   const artifactName = "screenshot-123-12345678-1234-1234-1234-123456789abc.png";
   const expiredArtifactName = "screenshot-122-12345678-1234-1234-1234-123456789abc.png";
   writeFileSync(join(artifactDirectory, artifactName), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
@@ -106,6 +108,16 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
       headers: { "Tailscale-User-Login": "owner@example.com" },
     });
     assert.equal(expiredArtifact.status, 404);
+
+    const script = await fetch(`${baseUrl}/app.js`, {
+      headers: { "Tailscale-User-Login": "owner@example.com" },
+    });
+    assert.equal(script.headers.get("cache-control"), "no-cache");
+
+    const styles = await fetch(`${baseUrl}/styles.css`, {
+      headers: { "Tailscale-User-Login": "owner@example.com" },
+    });
+    assert.equal(styles.headers.get("cache-control"), "no-cache");
   } finally {
     eventHub.close();
     await new Promise<void>((resolve, reject) => {

@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { defineTool, type Tool } from "@github/copilot-sdk";
 import { chromium } from "playwright";
 
+import type { EventStore } from "./event-store.js";
+import type { SseHub } from "./sse-hub.js";
+
 interface ScreenshotArguments {
   readonly viewport?: "mobile" | "desktop";
   readonly fullPage?: boolean;
@@ -13,6 +16,9 @@ interface ScreenshotArguments {
 export interface ScreenshotToolOptions {
   readonly artifactDirectory: string;
   readonly tailscaleUser: string;
+  readonly publicBaseUrl?: string;
+  readonly eventStore: EventStore;
+  readonly eventHub: SseHub;
 }
 
 function cleanOldScreenshots(artifactDirectory: string): void {
@@ -42,7 +48,8 @@ export function createScreenshotTool(
   return defineTool<ScreenshotArguments>("capture_agent_outpost_screenshot", {
     description:
       "Capture the live Agent Outpost UI at its fixed loopback endpoint. " +
-      "Returns an authenticated artifact URL that can be shared in chat.",
+      "Publishes the screenshot directly into the conversation timeline as an image artifact " +
+      "and returns its URL for reference.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -89,12 +96,29 @@ export function createScreenshotTool(
         }
       }
 
+      const url = `/api/artifacts/${filename}`;
+      const absoluteUrl = options.publicBaseUrl ? `${options.publicBaseUrl}${url}` : undefined;
+      const stored = options.eventStore.append({
+        kind: "assistant.artifact",
+        payload: {
+          caption: `${viewportName === "mobile" ? "Mobile" : "Desktop"} UI screenshot`,
+          url,
+          kind: "screenshot",
+          ...(absoluteUrl ? { absoluteUrl } : {}),
+        },
+      });
+      options.eventHub.publish(stored);
+
       return {
         status: "captured",
-        artifactUrl: `/api/artifacts/${filename}`,
+        artifactUrl: url,
+        ...(absoluteUrl ? { absoluteUrl } : {}),
         viewport: viewportName,
         width: viewport.width,
         height: viewport.height,
+        message:
+          "The screenshot was published to the conversation timeline as an inline image. " +
+          "Do not repeat the artifact URL as plain text; tell the user the screenshot is shown above.",
       };
     },
   });

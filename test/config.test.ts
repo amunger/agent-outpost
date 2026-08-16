@@ -51,3 +51,9 @@ test("loadConfig normalizes a Tailscale login", () => {
 
   assert.equal(config.allowedTailscaleUser, "aaron@example.com");
 });
+
+test("loadConfig trims a trailing slash from the public base URL", () => {
+  const config = loadConfig({ OUTPOST_PUBLIC_BASE_URL: "https://outpost.example.ts.net/" });
+
+  assert.equal(config.publicBaseUrl, "https://outpost.example.ts.net");
+});
