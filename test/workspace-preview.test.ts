@@ -68,7 +68,11 @@ test("workspace preview serves local assets with read-only API fixtures", async 
   }
 });
 
-test("chat selection and down-arrow controls scroll the timeline to the bottom", async () => {
+test("chat selection and down-arrow controls scroll the timeline to the bottom", async (context) => {
+  if (!existsSync(chromium.executablePath())) {
+    context.skip("Playwright Chromium is not installed in this environment");
+    return;
+  }
   const publicDirectory = join(process.cwd(), "public");
   const server = createWorkspacePreviewServer(publicDirectory);
   const browser = await chromium.launch({ headless: true });
@@ -112,7 +116,11 @@ async function assertBottom(locator: import("playwright").Locator): Promise<void
   });
 }
 
-test("screenshot tool verifies workspace conversation scrolling with typed actions", async () => {
+test("screenshot tool verifies workspace conversation scrolling with typed actions", async (context) => {
+  if (!existsSync(chromium.executablePath())) {
+    context.skip("Playwright Chromium is not installed in this environment");
+    return;
+  }
   const directory = mkdtempSync(join(tmpdir(), "agent-outpost-screenshot-actions-"));
   const artifactDirectory = join(directory, "artifacts");
   const eventStore = new EventStore(directory);
