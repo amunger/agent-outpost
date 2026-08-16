@@ -218,7 +218,9 @@ function showChatList() {
 
 async function openChat() {
   showChatView();
+  autoScrollTimeline = true;
   const snapshot = await loadSession();
+  scrollTimelineToBottom();
   connectEvents(snapshot.events.at(-1)?.id || 0);
 }
 
@@ -227,6 +229,8 @@ async function loadSession() {
   timeline.replaceChildren();
   snapshot.events.forEach(handleEvent);
   setState(snapshot.state);
+  autoScrollTimeline = true;
+  scrollTimelineToBottom();
   return snapshot;
 }
 

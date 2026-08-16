@@ -44,6 +44,16 @@ textarea {
   gap: 1rem;
 }
 
+.chat-view > .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: 2.25rem;
+  margin: -0.25rem 0;
+  padding: 0.25rem 0;
+  background: #090d17;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -86,6 +96,8 @@ h1 {
 
 .back-button {
   min-width: auto;
+  min-height: 2rem;
+  padding: 0.25rem 0.5rem;
   color: #cbd5e1;
   background: transparent;
 }
