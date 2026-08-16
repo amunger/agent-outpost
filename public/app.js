@@ -47,7 +47,7 @@ function updateScrollToBottomButton() {
 timeline.addEventListener("scroll", updateScrollToBottomButton);
 scrollToBottomButton.addEventListener("click", () => {
   autoScrollTimeline = true;
-  scrollTimelineToBottom("smooth");
+  scrollTimelineToBottom();
   updateScrollToBottomButton();
 });
 
