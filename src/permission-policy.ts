@@ -25,9 +25,6 @@ const forbiddenCommandPatterns = [
 const allowedGitSegments = [
   /^git\s+status(?:\s+--short)?$/i,
   /^git\s+(?:diff|log|show|branch|rev-parse)(?:\s+[-\w./:^=]+)*$/i,
-  /^git\s+add(?:\s+[-\w./]+)+$/i,
-  /^git\s+commit\s+-m\s+["'][^"'`]+["']$/i,
-  /^git\s+push\s+origin\s+agent\/current$/i,
 ];
 const allowedNpmSegment = /^npm\s+(?:ci|install|test|run\s+(?:build|test|typecheck))$/i;
 

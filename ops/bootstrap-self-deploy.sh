@@ -63,6 +63,14 @@ else
     'OUTPOST_DEPLOY_REQUEST_DIR=/var/lib/agent-outpost/deploy-requests' \
     >> /etc/agent-outpost/agent-outpost.env
 fi
+if grep -q '^OUTPOST_GITHUB_REPOSITORY=' /etc/agent-outpost/agent-outpost.env; then
+  sed -i \
+    's|^OUTPOST_GITHUB_REPOSITORY=.*|OUTPOST_GITHUB_REPOSITORY=amunger/agent-outpost|' \
+    /etc/agent-outpost/agent-outpost.env
+else
+  printf '%s\n' 'OUTPOST_GITHUB_REPOSITORY=amunger/agent-outpost' \
+    >> /etc/agent-outpost/agent-outpost.env
+fi
 
 cat > /etc/agent-outpost/slot-a.env <<'EOF'
 OUTPOST_PORT=3001

@@ -67,6 +67,7 @@ OUTPOST_SESSION_ID=agent-outpost-main
 OUTPOST_MODEL=auto
 OUTPOST_ALLOWED_TAILSCALE_USER=
 OUTPOST_ALLOWED_GIT_REMOTE=https://github.com/amunger/agent-outpost.git
+OUTPOST_GITHUB_REPOSITORY=amunger/agent-outpost
 OUTPOST_DEPLOY_REQUEST_DIR=/var/lib/agent-outpost/deploy-requests
 COPILOT_HOME=/var/lib/agent-outpost/copilot
 EOF

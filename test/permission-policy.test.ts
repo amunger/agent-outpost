@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -37,72 +36,28 @@ test("permission policy rejects writes outside the workspace", async () => {
   assert.equal((await handler(request, invocation)).kind, "reject");
 });
 
-test("permission policy allows ordinary git pushes but rejects force pushes", async () => {
-  const repository = mkdtempSync(join(tmpdir(), "agent-outpost-git-policy-"));
-  const allowedRemote = "https://github.com/amunger/agent-outpost.git";
-  execFileSync("git", ["init"], { cwd: repository });
-  execFileSync("git", ["remote", "add", "origin", allowedRemote], { cwd: repository });
-  const gitHandler = createPermissionHandler(repository, allowedRemote);
+test("permission policy rejects raw git pushes in favor of the typed publish tool", async () => {
   const shellRequest = (fullCommandText: string): PermissionRequest => ({
     kind: "shell",
     fullCommandText,
     intention: "Push validated changes",
     commands: [{ identifier: "git", readOnly: false }],
     commandSegments: [{ identifier: "git", fullCommandText }],
-    possiblePaths: [repository],
+    possiblePaths: [workspace],
     possibleUrls: [],
     hasWriteFileRedirection: false,
     canOfferSessionApproval: false,
   });
 
-  try {
-    assert.equal(
-      (await gitHandler(shellRequest("git push origin agent/current"), invocation)).kind,
-      "approve-once",
-    );
-    assert.equal(
-      (
-        await gitHandler(
-          shellRequest("git push --force-with-lease origin agent/current"),
-          invocation,
-        )
-      ).kind,
-      "reject",
-    );
-    assert.equal(
-      (await gitHandler(shellRequest("git push origin +HEAD:main"), invocation)).kind,
-      "reject",
-    );
-  } finally {
-    rmSync(repository, { recursive: true, force: true });
-  }
-});
-
-test("permission policy rejects a push after origin is repointed", async () => {
-  const repository = mkdtempSync(join(tmpdir(), "agent-outpost-remote-policy-"));
-  const allowedRemote = "https://github.com/amunger/agent-outpost.git";
-  execFileSync("git", ["init"], { cwd: repository });
-  execFileSync("git", ["remote", "add", "origin", "https://github.com/attacker/repository.git"], {
-    cwd: repository,
-  });
-  const gitHandler = createPermissionHandler(repository, allowedRemote);
-  const request = {
-    kind: "shell",
-    fullCommandText: "git push origin agent/current",
-    intention: "Push changes",
-    commands: [{ identifier: "git", readOnly: false }],
-    commandSegments: [{ identifier: "git", fullCommandText: "git push origin agent/current" }],
-    possiblePaths: [repository],
-    possibleUrls: [],
-    hasWriteFileRedirection: false,
-    canOfferSessionApproval: false,
-  } satisfies PermissionRequest;
-
-  try {
-    assert.equal((await gitHandler(request, invocation)).kind, "reject");
-  } finally {
-    rmSync(repository, { recursive: true, force: true });
-  }
+  assert.equal(
+    (await handler(shellRequest("git push origin agent/current"), invocation)).kind,
+    "reject",
+  );
+  assert.equal(
+    (await handler(shellRequest("git push --force-with-lease origin agent/current"), invocation))
+      .kind,
+    "reject",
+  );
 });
 
 test("permission policy rejects interpreters and shell redirection", async () => {
@@ -116,6 +71,22 @@ test("permission policy rejects interpreters and shell redirection", async () =>
     possibleUrls: [],
     hasWriteFileRedirection: fullCommandText.includes(">"),
     canOfferSessionApproval: false,
+  });
+
+  test("permission policy allows read-only diff validation", async () => {
+    const request = {
+      kind: "shell",
+      fullCommandText: "git diff --check",
+      intention: "Validate whitespace",
+      commands: [{ identifier: "git diff --check", readOnly: true }],
+      commandSegments: [{ identifier: "git diff", fullCommandText: "git diff --check" }],
+      possiblePaths: [],
+      possibleUrls: [],
+      hasWriteFileRedirection: false,
+      canOfferSessionApproval: false,
+    } satisfies PermissionRequest;
+
+    assert.equal((await handler(request, invocation)).kind, "approve-once");
   });
 
   assert.equal((await handler(request("node -e \"console.log(process.env)\"", "node"), invocation)).kind, "reject");

@@ -29,6 +29,18 @@ test("loadConfig requires an allowed Git remote in production", () => {
   );
 });
 
+test("loadConfig requires a GitHub repository in production", () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        NODE_ENV: "production",
+        OUTPOST_ALLOWED_TAILSCALE_USER: "owner@example.com",
+        OUTPOST_ALLOWED_GIT_REMOTE: "https://github.com/owner/repository.git",
+      }),
+    /OUTPOST_GITHUB_REPOSITORY/,
+  );
+});
+
 test("loadConfig rejects an invalid port", () => {
   assert.throws(() => loadConfig({ OUTPOST_PORT: "70000" }), /OUTPOST_PORT/);
 });

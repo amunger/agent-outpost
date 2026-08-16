@@ -46,6 +46,7 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
     publicDirectory,
     allowedTailscaleUser: "owner@example.com",
     allowedGitRemote: "https://github.com/owner/agent-outpost.git",
+    githubRepository: "owner/agent-outpost",
     deploymentRequestDirectory: join(directory, "deploy-requests"),
     sessionId: "test",
     model: "auto",

@@ -8,6 +8,7 @@ export interface OutpostConfig {
   readonly publicDirectory: string;
   readonly allowedTailscaleUser?: string;
   readonly allowedGitRemote?: string;
+  readonly githubRepository?: string;
   readonly deploymentRequestDirectory: string;
   readonly sessionId: string;
   readonly model: string;
@@ -30,12 +31,16 @@ function parsePort(value: string | undefined): number {
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): OutpostConfig {
   const allowedTailscaleUser = environment.OUTPOST_ALLOWED_TAILSCALE_USER?.trim().toLowerCase();
   const allowedGitRemote = environment.OUTPOST_ALLOWED_GIT_REMOTE?.trim();
+  const githubRepository = environment.OUTPOST_GITHUB_REPOSITORY?.trim();
   const production = environment.NODE_ENV === "production";
   if (production && !allowedTailscaleUser) {
     throw new Error("OUTPOST_ALLOWED_TAILSCALE_USER is required when NODE_ENV=production");
   }
   if (production && !allowedGitRemote) {
     throw new Error("OUTPOST_ALLOWED_GIT_REMOTE is required when NODE_ENV=production");
+  }
+  if (production && !githubRepository) {
+    throw new Error("OUTPOST_GITHUB_REPOSITORY is required when NODE_ENV=production");
   }
 
   return {
@@ -46,6 +51,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Outpos
     publicDirectory: requiredPath(environment.OUTPOST_PUBLIC_DIR, "./public"),
     ...(allowedTailscaleUser ? { allowedTailscaleUser } : {}),
     ...(allowedGitRemote ? { allowedGitRemote } : {}),
+    ...(githubRepository ? { githubRepository } : {}),
     deploymentRequestDirectory: requiredPath(
       environment.OUTPOST_DEPLOY_REQUEST_DIR,
       "./data/deploy-requests",

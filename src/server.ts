@@ -20,6 +20,7 @@ const agent = new CopilotAgent({
   model: config.model,
   ...(config.allowedGitRemote ? { allowedGitRemote: config.allowedGitRemote } : {}),
   deploymentRequestDirectory: config.deploymentRequestDirectory,
+  ...(config.githubRepository ? { githubRepository: config.githubRepository } : {}),
   eventStore,
   eventHub,
 });

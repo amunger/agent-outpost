@@ -3,6 +3,7 @@ import { CopilotClient, type CopilotSession, type SessionEvent } from "@github/c
 import type { AgentState, OutpostEvent } from "./domain.js";
 import { EventStore } from "./event-store.js";
 import { createDeploymentTool } from "./deployment-tool.js";
+import { createRepositoryTools } from "./repository-tools.js";
 import { createPermissionHandler } from "./permission-policy.js";
 import { SseHub } from "./sse-hub.js";
 
@@ -20,6 +21,7 @@ export interface CopilotAgentOptions {
   readonly model: string;
   readonly allowedGitRemote?: string;
   readonly deploymentRequestDirectory: string;
+  readonly githubRepository?: string;
   readonly eventStore: EventStore;
   readonly eventHub: SseHub;
 }
@@ -35,6 +37,7 @@ export class CopilotAgent implements AgentController {
   readonly #model: string;
   readonly #allowedGitRemote: string | undefined;
   readonly #deploymentRequestDirectory: string;
+  readonly #githubRepository: string | undefined;
   readonly #eventStore: EventStore;
   readonly #eventHub: SseHub;
   #session: CopilotSession | undefined;
@@ -48,6 +51,7 @@ export class CopilotAgent implements AgentController {
     this.#model = options.model;
     this.#allowedGitRemote = options.allowedGitRemote;
     this.#deploymentRequestDirectory = options.deploymentRequestDirectory;
+    this.#githubRepository = options.githubRepository;
     this.#eventStore = options.eventStore;
     this.#eventHub = options.eventHub;
   }
@@ -69,6 +73,14 @@ export class CopilotAgent implements AgentController {
                 requestDirectory: this.#deploymentRequestDirectory,
               }),
             ];
+      const repositoryTools =
+        this.#allowedGitRemote === undefined || this.#githubRepository === undefined
+          ? []
+          : createRepositoryTools({
+              workspace: this.#workspace,
+              allowedGitRemote: this.#allowedGitRemote,
+              githubRepository: this.#githubRepository,
+            });
       const commonConfig = {
         clientName: "agent-outpost",
         workingDirectory: this.#workspace,
@@ -76,14 +88,16 @@ export class CopilotAgent implements AgentController {
         enableExperimentalMode: true,
         enableConfigDiscovery: true,
         onPermissionRequest: createPermissionHandler(this.#workspace, this.#allowedGitRemote),
-        tools: deploymentTools,
+        tools: [...deploymentTools, ...repositoryTools],
         systemMessage: {
           mode: "append" as const,
           content:
             "You are running in Agent Outpost for one developer. Work only inside the configured workspace. " +
-            "Run the repository's existing checks before committing. You may commit and push ordinary commits after checks pass. " +
+            "Run the repository's existing checks before publishing. " +
             "Never force-push, change credentials, access production secrets, or make system-level changes. " +
-            " After pushing a validated commit to agent/current, call deploy_agent_outpost with the exact full commit SHA. " +
+            "Use publish_agent_outpost_changes instead of shell git commit or push commands. " +
+            "Use create_agent_outpost_issue instead of the gh shell command. " +
+            "After publishing a validated commit to agent/current, call deploy_agent_outpost with the returned commit SHA. " +
             "Tell the user immediately when deployment has been scheduled.",
         },
       };
