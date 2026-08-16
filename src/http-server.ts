@@ -1,6 +1,6 @@
 import { closeSync, constants, createReadStream, fstatSync, openSync } from "node:fs";
 import { access, realpath } from "node:fs/promises";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, extname, join, normalize, relative } from "node:path";
 
 import type { AgentController } from "./agent.js";
@@ -101,13 +101,14 @@ function parseMessageBody(value: unknown): MessageBody {
 
 async function serveStatic(
   requestPath: string,
-  config: OutpostConfig,
+  publicDirectory: string,
   response: ServerResponse,
+  cacheAssets = true,
 ): Promise<void> {
   const relativePath = requestPath === "/" ? "index.html" : requestPath.replace(/^\/+/, "");
   const normalizedPath = normalize(relativePath);
-  const candidate = join(config.publicDirectory, normalizedPath);
-  const relativeCandidate = relative(config.publicDirectory, candidate);
+  const candidate = join(publicDirectory, normalizedPath);
+  const relativeCandidate = relative(publicDirectory, candidate);
   if (relativeCandidate.startsWith("..")) {
     sendJson(response, 404, { error: "Not found" });
     return;
@@ -115,7 +116,7 @@ async function serveStatic(
 
   try {
     await access(candidate);
-    const resolvedPublic = await realpath(config.publicDirectory);
+    const resolvedPublic = await realpath(publicDirectory);
     const resolvedCandidate = await realpath(candidate);
     if (relative(resolvedPublic, resolvedCandidate).startsWith("..")) {
       sendJson(response, 404, { error: "Not found" });
@@ -134,9 +135,90 @@ async function serveStatic(
   response.setHeader("Content-Type", contentTypes[extname(candidate)] ?? "application/octet-stream");
   response.setHeader(
     "Cache-Control",
-    noCacheExtensions.has(extname(candidate)) ? "no-cache" : "public, max-age=3600",
+    !cacheAssets || noCacheExtensions.has(extname(candidate)) ? "no-cache" : "public, max-age=3600",
   );
   createReadStream(candidate).pipe(response);
+}
+
+export function createWorkspacePreviewServer(publicDirectory: string): Server {
+  const previewEvents = Array.from({ length: 30 }, (_, index) => ({
+    id: index + 1,
+    kind: index % 2 === 0 ? "user.message" : "assistant.message",
+    createdAt: new Date(index * 1_000).toISOString(),
+    payload: {
+      content: `Preview message ${index + 1}: enough content to exercise conversation scrolling.`,
+    },
+  }));
+
+  return createServer(async (request, response) => {
+    setSecurityHeaders(response);
+    const url = new URL(request.url ?? "/", "http://preview.local");
+
+    try {
+      if (request.method === "GET" && url.pathname === "/health") {
+        sendJson(response, 200, { status: "ok" });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/session") {
+        sendJson(response, 200, { state: "idle", events: previewEvents });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/chats") {
+        sendJson(response, 200, {
+          chats: [
+            {
+              id: "workspace-preview",
+              name: "Workspace preview",
+              repository: basename(join(publicDirectory, "..")),
+              lastUsedAt: new Date(0).toISOString(),
+            },
+          ],
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/session/events") {
+        response.statusCode = 200;
+        response.setHeader("Content-Type", "text/event-stream");
+        response.setHeader("Cache-Control", "no-cache, no-transform");
+        response.setHeader("Connection", "keep-alive");
+        response.flushHeaders();
+        response.write(": workspace preview\n\n");
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/status/resources") {
+        sendJson(response, 200, {
+          cpu: { usagePercent: 0 },
+          memory: { usagePercent: 0 },
+          disk: { usagePercent: 0 },
+          loadAverage: [0, 0, 0],
+        });
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        (url.pathname === "/api/session/messages" || url.pathname === "/api/session/cancel")
+      ) {
+        sendJson(response, 409, { error: "Workspace preview is read-only" });
+        return;
+      }
+
+      if (request.method === "GET") {
+        await serveStatic(url.pathname, publicDirectory, response, false);
+        return;
+      }
+
+      sendJson(response, 404, { error: "Not found" });
+    } catch (error) {
+      sendJson(response, 400, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
 }
 
 async function serveArtifact(
@@ -276,7 +358,7 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
       }
 
       if (request.method === "GET") {
-        await serveStatic(url.pathname, config, response);
+        await serveStatic(url.pathname, config.publicDirectory, response);
         return;
       }
 

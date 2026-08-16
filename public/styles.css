@@ -16,7 +16,8 @@
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background:
     radial-gradient(circle at top right, rgb(20 184 166 / 18%), transparent 35rem),
     #090d17;
@@ -29,9 +30,9 @@ textarea {
 
 .shell {
   display: grid;
-  grid-template-rows: auto auto minmax(16rem, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   width: min(100%, 50rem);
-  min-height: 100vh;
+  height: 100dvh;
   margin: 0 auto;
   padding: 1rem;
   gap: 1rem;
@@ -39,11 +40,16 @@ textarea {
 
 .chat-list,
 .chat-view {
-  min-height: 100vh;
+  min-height: 0;
+}
+
+.chat-list {
+  overflow-y: auto;
 }
 
 .chat-view {
   position: relative;
+  overflow: hidden;
   display: grid;
   grid-template-rows: auto minmax(16rem, 1fr) auto;
   gap: 1rem;
@@ -185,6 +191,7 @@ h1 {
 }
 
 .timeline {
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;

@@ -127,7 +127,8 @@ function publishTool(options: RepositoryToolOptions, run: CommandRunner): Tool<P
     defer: "never",
     skipPermission: true,
     handler: (value: PublishArguments) => {
-      const { message } = validatePublishArguments(value);
+      try {
+        const { message } = validatePublishArguments(value);
       const git = (args: readonly string[]): string =>
         run("git", [...safeGitConfiguration, ...args], {
           cwd: options.workspace,
@@ -211,11 +212,19 @@ function publishTool(options: RepositoryToolOptions, run: CommandRunner): Tool<P
         commitSha = git(["rev-parse", "HEAD"]);
       }
 
-      return {
-        status: "published",
-        commitSha,
-        message: "Changes were committed and pushed. Use deploy_agent_outpost with commitSha.",
-      };
+        return {
+          status: "published",
+          commitSha,
+          message: "Changes were committed and pushed. Use deploy_agent_outpost with commitSha.",
+        };
+      } catch (error) {
+        return {
+          status: "blocked",
+          error: error instanceof Error ? error.message : String(error),
+          message:
+            "Publishing was not attempted or did not complete. Resolve this error before retrying.",
+        };
+      }
     },
   });
 }

@@ -124,19 +124,20 @@ test("publish tool rejects a remote that is not explicitly allowed", async () =>
     });
 
     assert.ok(publish.handler);
-    await assert.rejects(
-      async () =>
-        publish.handler?.(
-          { message: "Publish changes" },
-          {
-            sessionId: "test",
-            toolCallId: "publish-remote",
-            toolName: publish.name,
-            arguments: { message: "Publish changes" },
-          },
-        ),
-      /OUTPOST_ALLOWED_GIT_REMOTE/,
+    const result = await publish.handler(
+      { message: "Publish changes" },
+      {
+        sessionId: "test",
+        toolCallId: "publish-remote",
+        toolName: publish.name,
+        arguments: { message: "Publish changes" },
+      },
     );
+    assert.deepEqual(result, {
+      status: "blocked",
+      error: "The origin push URL does not match OUTPOST_ALLOWED_GIT_REMOTE",
+      message: "Publishing was not attempted or did not complete. Resolve this error before retrying.",
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -166,19 +167,20 @@ test("publish tool rejects executable local Git configuration", async () => {
       githubRepository: "owner/repository",
     });
     assert.ok(publish.handler);
-    await assert.rejects(
-      async () =>
-        publish.handler?.(
-          { message: "Publish changes" },
-          {
-            sessionId: "test",
-            toolCallId: "publish-config",
-            toolName: publish.name,
-            arguments: { message: "Publish changes" },
-          },
-        ),
-      /unsafe local Git configuration/,
+    const result = await publish.handler(
+      { message: "Publish changes" },
+      {
+        sessionId: "test",
+        toolCallId: "publish-config",
+        toolName: publish.name,
+        arguments: { message: "Publish changes" },
+      },
     );
+    assert.deepEqual(result, {
+      status: "blocked",
+      error: "Publishing is blocked by unsafe local Git configuration: filter.danger.clean",
+      message: "Publishing was not attempted or did not complete. Resolve this error before retrying.",
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

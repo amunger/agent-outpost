@@ -53,6 +53,15 @@ The server binds to loopback by default. The VM setup uses Tailscale
 Serve to provide an authenticated HTTPS endpoint without exposing the
 application publicly.
 
+The agent's screenshot tool can validate unpublished UI changes without a
+deployment. Ask it to capture the `workspace` source; it starts a read-only
+preview of the workspace's `public/` directory on an ephemeral loopback port.
+The preview supports ordered click, fill, scroll, and scroll-position assertion
+actions before capture, while rejecting message and cancellation requests so
+testing cannot affect the live agent session. Its synthetic conversation is
+long enough to exercise selecting a chat, automatic scrolling, and the
+scroll-to-bottom control.
+
 See the [bootstrap runbook](docs/bootstrap.md) for the intended deployment
 sequence. Infrastructure is defined in [Bicep](infra/main.bicep); the deployment
 script runs an Azure what-if unless `-Apply` is explicitly supplied.

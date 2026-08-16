@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { CopilotClient, type CopilotSession, type SessionEvent } from "@github/copilot-sdk";
 
 import type { AgentState, OutpostEvent } from "./domain.js";
@@ -103,6 +105,7 @@ export class CopilotAgent implements AgentController {
                 ...(this.#publicBaseUrl ? { publicBaseUrl: this.#publicBaseUrl } : {}),
                 eventStore: this.#eventStore,
                 eventHub: this.#eventHub,
+                workspacePublicDirectory: join(this.#workspace, "public"),
               }),
             ];
       const commonConfig = {
@@ -120,10 +123,15 @@ export class CopilotAgent implements AgentController {
             "Run the repository's existing checks before publishing. " +
             "Never force-push, change credentials, access production secrets, or make system-level changes. " +
             "Use publish_agent_outpost_changes instead of shell git commit or push commands. " +
+            "Publishing requires the agent/current branch. If a typed tool returns status blocked, report its " +
+            "error and do not retry until the cause is resolved. " +
             "Use create_agent_outpost_issue instead of the gh shell command. " +
             "If apply_patch is unavailable, use replace_workspace_text or create_workspace_file. " +
-            "Use capture_agent_outpost_screenshot for visual UI validation; it publishes the image " +
-            "directly into the conversation, so do not repeat the artifact URL as plain text. " +
+            "Use capture_agent_outpost_screenshot with source workspace to validate unpublished UI changes, " +
+            "including click, fill, scroll, and assertScroll browser actions, before publishing. " +
+            "For conversation scrolling, open .chat-entry and assert #timeline at bottom; scroll it to top, " +
+            "click #scroll-to-bottom, and assert #timeline at bottom again. It publishes the image directly into " +
+            "the conversation, so do not repeat the artifact URL as plain text. " +
             "After publishing a validated commit to agent/current, call deploy_agent_outpost with the returned commit SHA. " +
             "Tell the user immediately when deployment has been scheduled.",
         },
