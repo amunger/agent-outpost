@@ -363,6 +363,7 @@ async function loadResources() {
     document.querySelector("#memory").textContent = `${resources.memory.usagePercent}%`;
     document.querySelector("#disk").textContent = `${resources.disk.usagePercent}%`;
     document.querySelector("#load").textContent = resources.loadAverage[0].toFixed(2);
+    document.querySelector("#last-deployment").textContent = formatLastUsed(resources.lastDeploymentAt);
   } catch (error) {
     errorElement.textContent = error instanceof Error ? error.message : String(error);
   }

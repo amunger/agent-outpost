@@ -348,6 +348,7 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
   const { config, agent, eventStore, eventHub, resourceMonitor } = dependencies;
   const listRepositories = dependencies.listRepositories ?? listOwnedRepositories;
   const owner = repositoryOwner(config.githubRepository);
+  const lastDeploymentAt = new Date().toISOString();
   const initialRepository = repositoryLabel(config.allowedGitRemote ?? basename(config.workspace));
   eventStore.ensureChat({
     id: config.sessionId,
@@ -501,7 +502,8 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
       }
 
       if (request.method === "GET" && url.pathname === "/api/status/resources") {
-        sendJson(response, 200, await resourceMonitor.snapshot(config.dataDirectory));
+        const resources = await resourceMonitor.snapshot(config.dataDirectory);
+        sendJson(response, 200, { ...resources, lastDeploymentAt });
         return;
       }
 
