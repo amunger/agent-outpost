@@ -45,6 +45,14 @@ deploy_agent_outpost({ "commitSha": "0123...abcd" })
 If publishing reports a diverged branch or unexpected remote, stop and report
 the exact error. Never force-push, change the remote, or bypass the sandbox.
 
+When the user asks in plain language to deploy changes that are already
+published (for example, “deploy the latest changes”), call
+`deploy_latest_agent_outpost` with no arguments. It fetches and resolves the
+current `origin/agent/current` revision internally. Never ask the user to supply
+a commit SHA, confirm the current branch tip, or report CI status. The
+root-owned deployment controller runs the authoritative install, typecheck,
+test, build, and readiness checks.
+
 ## Create a GitHub issue
 
 Call `create_agent_outpost_issue` with a focused title and Markdown body.
@@ -96,6 +104,9 @@ screenshot").
 ## Verification
 
 - After publishing, use the returned SHA rather than reading a shortened SHA.
+- Exact SHAs are internal tool handoff values, not user inputs.
+- CI is useful operational evidence but is never information the phone user
+  must look up before asking for a deployment.
 - After deployment scheduling, do not begin another file-changing task in the
   same turn.
 - A failed candidate is rolled back automatically; report controller failures

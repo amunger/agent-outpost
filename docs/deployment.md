@@ -172,7 +172,7 @@ the live HTTPS API:
 
 ```powershell
 $baseUrl = 'https://agent-outpost.tail895de1.ts.net'
-$body = @{ content = 'Deploy the validated agent/current revision.' } |
+$body = @{ content = 'Deploy the latest changes.' } |
   ConvertTo-Json -Compress
 
 Invoke-RestMethod `
@@ -191,3 +191,7 @@ machine is connected to the correct tailnet. Do not replace the URL with local
 Azure Run Command can reach VM loopback as a break-glass maintenance path. It
 is not the ordinary operator endpoint and should not be embedded in application
 behavior.
+
+The user should not provide a SHA or CI status. The operator resolves the
+current remote tip, and the root controller independently reruns validation.
+The exact SHA remains recorded in the deployment state for audit and recovery.

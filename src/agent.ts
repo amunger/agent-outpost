@@ -4,7 +4,7 @@ import { CopilotClient, type CopilotSession, type SessionEvent } from "@github/c
 
 import type { AgentState, OutpostEvent } from "./domain.js";
 import { EventStore } from "./event-store.js";
-import { createDeploymentTool } from "./deployment-tool.js";
+import { createDeploymentTools } from "./deployment-tool.js";
 import { createRepositoryTools } from "./repository-tools.js";
 import { createScreenshotTool } from "./screenshot-tool.js";
 import { createWorkspaceTools } from "./workspace-tools.js";
@@ -79,13 +79,11 @@ export class CopilotAgent implements AgentController {
       const deploymentTools =
         this.#allowedGitRemote === undefined
           ? []
-          : [
-              createDeploymentTool({
+          : createDeploymentTools({
                 workspace: this.#workspace,
                 allowedGitRemote: this.#allowedGitRemote,
                 requestDirectory: this.#deploymentRequestDirectory,
-              }),
-            ];
+              });
       const repositoryTools =
         this.#allowedGitRemote === undefined || this.#githubRepository === undefined
           ? []
@@ -132,7 +130,9 @@ export class CopilotAgent implements AgentController {
             "For conversation scrolling, open .chat-entry and assert #timeline at bottom; scroll it to top, " +
             "click #scroll-to-bottom, and assert #timeline at bottom again. It publishes the image directly into " +
             "the conversation, so do not repeat the artifact URL as plain text. " +
-            "After publishing a validated commit to agent/current, call deploy_agent_outpost with the returned commit SHA. " +
+            "After publishing changes, call deploy_agent_outpost internally with the returned commit SHA. " +
+            "For a plain-language request to deploy existing latest changes, call deploy_latest_agent_outpost without " +
+            "asking the user for a SHA or CI status. Deployment validation belongs to the controller, not the user. " +
             "Tell the user immediately when deployment has been scheduled.",
         },
       };

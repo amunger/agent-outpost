@@ -72,12 +72,17 @@ exact current `origin/agent/current` SHA.
 
 Preferred sequence:
 
-1. Ensure the desired commit is present at `origin/agent/current`.
-2. Verify CI is green.
-3. Contact the real operator at
+1. Publish the intended work to `origin/agent/current`.
+2. Contact the real operator at
    `https://agent-outpost.tail895de1.ts.net`.
-4. Ask in plain language to deploy the exact full SHA.
+3. Ask in plain language: “Deploy the latest changes.”
+4. Let the operator resolve the branch tip and the controller run its own
+   validation.
 5. Verify the active-state file and `/ready` after cutover.
+
+Do not ask the phone user to copy a SHA or state that CI passed. Those are
+maintainer/operator details. If CI is failing, diagnose it directly rather than
+delegating that diagnosis to the user.
 
 Never send the deployment request to:
 

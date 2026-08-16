@@ -72,11 +72,18 @@ shell operations:
 - `create_workspace_file`
 - `publish_agent_outpost_changes`
 - `deploy_agent_outpost`
+- `deploy_latest_agent_outpost`
 - `create_agent_outpost_issue`
 - `capture_agent_outpost_screenshot`
 
 The operator skill maps plain-language intent to these tools. An external
 maintainer should not expect them to exist.
+
+`deploy_agent_outpost` carries an exact SHA between internal typed tools.
+`deploy_latest_agent_outpost` is the user-intent entry point for already
+published work: it fetches and fast-forwards a clean operator workspace, then
+submits the resolved SHA to the same controller. Neither SHA nor CI state is a
+required user input.
 
 ### Conversation and artifacts
 

@@ -44,9 +44,12 @@ workspace preview ports are internal implementation details.
 - Do not call operator-only tools; they are available only inside the deployed
   Copilot session.
 - A commit is not deployed merely because it was pushed.
-- To deploy, ensure the exact desired SHA is the current
-  `origin/agent/current`, ask the live operator to deploy it, and verify the
-  active-state record after cutover.
+- To deploy published operator work, ask the live operator in plain language,
+  such as “deploy the latest changes.”
+- Do not ask the phone user to relay a SHA, branch tip, or CI result. The
+  operator resolves the remote revision and the controller validates it.
+- If a maintainer needs a non-latest commit deployed, explain why and coordinate
+  branch state directly rather than turning the user into a message relay.
 
 ## Security
 

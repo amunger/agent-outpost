@@ -52,11 +52,11 @@ if [[ $(stat -c %U "${processing_request}") != agent-outpost ]]; then
   echo "Deployment request has an unexpected owner." >&2
   exit 1
 fi
-commit_sha=$(tr -d '\r\n' < "${processing_request}")
+requested_revision=$(tr -d '\r\n' < "${processing_request}")
 rm -f "${processing_request}"
 
-if [[ ! "${commit_sha}" =~ ^[0-9a-f]{40}$ ]]; then
-  echo "Invalid deployment commit SHA." >&2
+if [[ "${requested_revision}" != latest && ! "${requested_revision}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Invalid deployment revision request." >&2
   exit 1
 fi
 
@@ -75,17 +75,31 @@ run_agent() {
   runuser -u agent-outpost -- "$@"
 }
 
-remote=$(run_agent git -C "${workspace}" remote get-url --push origin)
-if [[ "${remote}" != "${expected_remote}" ]]; then
-  echo "Refusing deployment because origin does not match ${expected_remote}." >&2
+mapfile -t fetch_remotes < <(
+  run_agent git -C "${workspace}" remote get-url --all origin
+)
+mapfile -t push_remotes < <(
+  run_agent git -C "${workspace}" remote get-url --all --push origin
+)
+if [[
+  ${#fetch_remotes[@]} -ne 1 ||
+  ${#push_remotes[@]} -ne 1 ||
+  "${fetch_remotes[0]}" != "${expected_remote}" ||
+  "${push_remotes[0]}" != "${expected_remote}"
+]]; then
+  echo "Refusing deployment because origin fetch and push URLs must equal ${expected_remote}." >&2
   exit 1
 fi
 
 run_agent git -C "${workspace}" fetch --prune origin agent/current
 remote_sha=$(run_agent git -C "${workspace}" rev-parse origin/agent/current)
-if [[ "${commit_sha}" != "${remote_sha}" ]]; then
+if [[ "${requested_revision}" == latest ]]; then
+  commit_sha="${remote_sha}"
+elif [[ "${requested_revision}" != "${remote_sha}" ]]; then
   echo "Requested commit is not the current origin/agent/current revision." >&2
   exit 1
+else
+  commit_sha="${requested_revision}"
 fi
 
 build_directory="/var/lib/agent-outpost/builds/${commit_sha}"

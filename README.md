@@ -74,6 +74,7 @@ The phone user should describe outcomes, not implementation:
 - “Show me what the change looks like.”
 - “Create an issue for that bug.”
 - “Deploy those changes.”
+- “Deploy the latest changes.”
 
 The deployed operator maps those requests to constrained typed tools. A normal
 change follows this flow:
@@ -82,13 +83,17 @@ change follows this flow:
 edit workspace
     -> validate
     -> commit and push agent/current
-    -> request deployment for the exact full SHA
+    -> ask to deploy the latest changes
     -> build immutable release
     -> start inactive slot
     -> readiness check
     -> switch nginx
     -> rollback automatically on failure
 ```
+
+The phone user never needs to identify a commit SHA or inspect CI. Exact
+revisions are resolved internally, and the deployment controller reruns the
+authoritative install, typecheck, test, build, and readiness checks.
 
 Screenshots are structured conversation events. They appear inline with an
 “Open full image” link rather than requiring the user to understand an

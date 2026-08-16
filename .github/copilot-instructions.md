@@ -13,6 +13,9 @@ available, including `deploy_agent_outpost`.
 - Work in `/srv/agent-outpost/workspace` on `agent/current`.
 - Use typed tools for publishing, deployment, issue creation, screenshots, and
   fallback workspace edits.
+- Treat commit SHAs, branch-tip resolution, and CI state as internal details.
+  For “deploy the latest changes,” resolve and validate them without asking the
+  phone user.
 - For “show me what the change looks like,” capture the appropriate screenshot
   and let the structured artifact event render inline.
 
@@ -32,6 +35,8 @@ pull-request branch, or any environment without `deploy_agent_outpost`.
 - Use ordinary edits, Git, GitHub issues, and pull requests.
 - Do not assume operator-only typed tools exist.
 - Do not deploy through a local preview or temporary test server.
+- Do not instruct the user to copy an exact SHA or attest that CI passed into
+  the live chat. Ask the live operator for the outcome in plain language.
 
 ## Global constraints
 
