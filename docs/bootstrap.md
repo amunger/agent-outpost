@@ -3,6 +3,10 @@
 This runbook establishes the first Agent Outpost VM. Account authentication is
 interactive by design; do not copy credentials into configuration files.
 
+This is a replacement-installation procedure, not a routine operations guide.
+For the existing deployment, read [Live deployment](deployment.md) and
+[External maintenance](maintenance.md) first.
+
 ## 1. Validate Azure access
 
 Authenticate the Azure CLI to the tenant containing the intended subscription:
@@ -57,13 +61,27 @@ sudo tailscale serve --bg --https=443 http://127.0.0.1:3000
 tailscale status
 ```
 
+The expected private URL for this deployment is:
+
+```text
+https://agent-outpost.tail895de1.ts.net
+```
+
 Set `OUTPOST_ALLOWED_TAILSCALE_USER` in
 `/etc/agent-outpost/agent-outpost.env` to the exact Tailscale login allowed to
 use the API. Confirm `OUTPOST_ALLOWED_GIT_REMOTE` contains the exact HTTPS
-push URL returned by:
+push URL and set the absolute screenshot fallback origin:
 
 ```bash
 sudo -iu agent-outpost git -C /srv/agent-outpost/workspace remote get-url --push origin
+sudo editor /etc/agent-outpost/agent-outpost.env
+```
+
+The environment must include:
+
+```text
+OUTPOST_GITHUB_REPOSITORY=amunger/agent-outpost
+OUTPOST_PUBLIC_BASE_URL=https://agent-outpost.tail895de1.ts.net
 ```
 
 Verify Tailscale SSH from a second terminal before removing the public IP.
@@ -73,10 +91,12 @@ Verify Tailscale SSH from a second terminal before removing the public IP.
 ```bash
 sudo -iu agent-outpost
 gh auth login
-copilot login --device-code
 ```
 
-Use browser device flows. Do not paste tokens into shell commands.
+Use the GitHub browser device flow. Do not paste tokens into shell commands.
+Copilot CLI supports the authenticated GitHub CLI OAuth token as a fallback.
+An additional `copilot login --device-code` is optional; on a headless VM it
+may offer plaintext token storage when no system keychain is available.
 
 Start an interactive Copilot session and open `/sandbox`. Confirm:
 
@@ -105,19 +125,23 @@ git switch -c agent/current
 git push --set-upstream origin agent/current
 ```
 
-## 6. Establish the recovery session
+## 6. Optional interactive recovery session
 
-Until the custom mobile interface is proven, keep an official Copilot remote
-session available:
+An interactive local session can be kept in tmux:
 
 ```bash
 tmux new-session -s copilot-recovery
 cd /srv/agent-outpost/workspace
-copilot --remote
+copilot --experimental
 ```
 
-Detach with `Ctrl+B`, then `D`. Verify the session is visible from GitHub
-Mobile before proceeding.
+Detach with `Ctrl+B`, then `D`.
+
+The owner's Copilot Enterprise organization currently disables GitHub's
+built-in remote-controlled CLI sessions, so `copilot --remote` and GitHub
+Mobile are not a dependable recovery path. The supported mobile surface is the
+custom Agent Outpost UI. Administrative recovery uses Tailscale SSH or Azure
+Run Command.
 
 ## 7. Install the custom service
 
@@ -141,8 +165,10 @@ systemctl status agent-outpost@a.service agent-outpost-deploy.path nginx --no-pa
 ```
 
 This installs the root-owned deployment controller, slots, systemd path watcher,
-and nginx loopback proxy. Future deployments are requested through the typed
-`deploy_agent_outpost` SDK tool and do not grant the agent general root access.
+nginx loopback proxy, Playwright system dependencies, and the persistent
+Chromium browser used for screenshots. Future deployments are requested through
+the typed `deploy_agent_outpost` SDK tool and do not grant the agent general
+root access.
 
 ## 9. Remove bootstrap public access
 
@@ -154,3 +180,7 @@ Only after Tailscale SSH and the mobile site both work:
 
 Keep the current SSH connection open until a new Tailscale SSH connection has
 been confirmed.
+
+After removal, confirm that the Azure public IP and inbound SSH rule no longer
+exist. Use [External maintenance](maintenance.md) for health checks, deployment
+verification, diagnostics, and recovery.

@@ -70,6 +70,7 @@ OUTPOST_ALLOWED_GIT_REMOTE=https://github.com/amunger/agent-outpost.git
 OUTPOST_GITHUB_REPOSITORY=amunger/agent-outpost
 OUTPOST_DEPLOY_REQUEST_DIR=/var/lib/agent-outpost/deploy-requests
 OUTPOST_ARTIFACT_DIR=/var/lib/agent-outpost/artifacts
+OUTPOST_PUBLIC_BASE_URL=https://agent-outpost.tail895de1.ts.net
 COPILOT_HOME=/var/lib/agent-outpost/copilot
 PLAYWRIGHT_BROWSERS_PATH=/var/lib/agent-outpost/playwright
 EOF
