@@ -18,6 +18,8 @@ interface ScreenshotAction {
   readonly waitAfterMs?: number;
 }
 
+const deployedClickSelectors = new Set([".chat-entry", "#back-to-chats", "#scroll-to-bottom"]);
+
 import type { EventStore } from "./event-store.js";
 import type { SseHub } from "./sse-hub.js";
 
@@ -95,7 +97,8 @@ export function createScreenshotTool(
     description:
       "Capture either the deployed Agent Outpost UI or an isolated, read-only preview of the " +
       "current workspace UI. Workspace previews use the unpublished files in public/ and may " +
-      "perform browser actions before capture. Publishes the screenshot directly into the " +
+      "perform browser actions before capture. Deployed captures permit only chat navigation " +
+      "and timeline scrolling actions. Publishes the screenshot directly into the " +
       "conversation timeline as an image artifact and returns its URL for reference.",
     parameters: {
       type: "object",
@@ -109,7 +112,8 @@ export function createScreenshotTool(
           maxItems: 20,
           description:
             "Ordered browser steps. Use scroll and assertScroll with #timeline and top/bottom " +
-            "to verify scrolling; click .chat-entry to open the preview chat.",
+            "to verify scrolling; click .chat-entry to open a chat. Deployed captures allow " +
+            "clicks only on .chat-entry, #back-to-chats, and #scroll-to-bottom.",
           items: {
             type: "object",
             additionalProperties: false,
@@ -128,137 +132,156 @@ export function createScreenshotTool(
     defer: "never",
     skipPermission: true,
     handler: async (value: ScreenshotArguments) => {
-      const viewportName = value.viewport ?? "mobile";
-      const source = value.source ?? "deployed";
-      const actions = value.actions ?? [];
-      if (source === "deployed" && actions.length > 0) {
-        throw new Error("Screenshot actions are allowed only in the read-only workspace preview");
-      }
-      for (const action of actions) {
-        if (action.type === "fill" && action.value === undefined) {
-          throw new Error(`Fill action for ${action.selector} requires a value`);
-        }
-        if (
-          (action.type === "scroll" || action.type === "assertScroll") &&
-          action.position === undefined
-        ) {
-          throw new Error(`${action.type} action for ${action.selector} requires a position`);
-        }
-      }
-      const viewport =
-        viewportName === "mobile" ? { width: 390, height: 844 } : { width: 1440, height: 900 };
-      mkdirSync(options.artifactDirectory, { recursive: true, mode: 0o700 });
-      cleanOldScreenshots(options.artifactDirectory);
-      const filename = `screenshot-${Date.now()}-${randomUUID()}.png`;
-      const outputPath = join(options.artifactDirectory, filename);
-      const preview =
-        source === "workspace"
-          ? await startWorkspacePreview(options.workspacePublicDirectory)
-          : undefined;
-      const targetUrl = preview?.url ?? "http://127.0.0.1:3000/";
-      let browser: Browser | undefined;
-      let captured = false;
       try {
-        browser = await chromium.launch({ headless: true });
-        const context = await browser.newContext({
-          viewport,
-          extraHTTPHeaders: {
-            "Tailscale-User-Login": options.tailscaleUser,
-          },
-        });
-        const page = await context.newPage();
-        await page.goto(targetUrl, {
-          waitUntil: "domcontentloaded",
-          timeout: 30_000,
-        });
+        const viewportName = value.viewport ?? "mobile";
+        const source = value.source ?? "deployed";
+        const actions = value.actions ?? [];
         for (const action of actions) {
-          const locator = page.locator(action.selector);
-          await locator.waitFor({ state: "visible", timeout: 15_000 });
-          switch (action.type) {
-            case "click":
-              await locator.click();
-              break;
-            case "fill":
-              await locator.fill(action.value ?? "");
-              break;
-            case "scroll":
-              await locator.evaluate((element, position) => {
-                element.scrollTo({
-                  top: position === "top" ? 0 : element.scrollHeight,
-                });
-              }, action.position);
-              break;
-            case "assertScroll":
-              await locator.evaluate(async (element, position) => {
-                for (let attempt = 0; attempt < 60; attempt += 1) {
+          if (action.type === "fill" && action.value === undefined) {
+            throw new Error(`Fill action for ${action.selector} requires a value`);
+          }
+          if (
+            (action.type === "scroll" || action.type === "assertScroll") &&
+            action.position === undefined
+          ) {
+            throw new Error(`${action.type} action for ${action.selector} requires a position`);
+          }
+          if (source === "deployed") {
+            if (action.type === "fill") {
+              throw new Error("Fill actions are not allowed against the deployed service");
+            }
+            if (action.type === "click" && !deployedClickSelectors.has(action.selector)) {
+              throw new Error(`Deployed clicks are not allowed on ${action.selector}`);
+            }
+            if (
+              (action.type === "scroll" || action.type === "assertScroll") &&
+              action.selector !== "#timeline"
+            ) {
+              throw new Error(`Deployed scroll actions are not allowed on ${action.selector}`);
+            }
+          }
+        }
+        const viewport =
+          viewportName === "mobile" ? { width: 390, height: 844 } : { width: 1440, height: 900 };
+        mkdirSync(options.artifactDirectory, { recursive: true, mode: 0o700 });
+        cleanOldScreenshots(options.artifactDirectory);
+        const filename = `screenshot-${Date.now()}-${randomUUID()}.png`;
+        const outputPath = join(options.artifactDirectory, filename);
+        const preview =
+          source === "workspace"
+            ? await startWorkspacePreview(options.workspacePublicDirectory)
+            : undefined;
+        const targetUrl = preview?.url ?? "http://127.0.0.1:3000/";
+        let browser: Browser | undefined;
+        let captured = false;
+        try {
+          browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            viewport,
+            extraHTTPHeaders: {
+              "Tailscale-User-Login": options.tailscaleUser,
+            },
+          });
+          const page = await context.newPage();
+          await page.goto(targetUrl, {
+            waitUntil: "domcontentloaded",
+            timeout: 30_000,
+          });
+          for (const action of actions) {
+            const locator = page.locator(action.selector);
+            await locator.waitFor({ state: "visible", timeout: 15_000 });
+            switch (action.type) {
+              case "click":
+                await locator.click();
+                break;
+              case "fill":
+                await locator.fill(action.value ?? "");
+                break;
+              case "scroll":
+                await locator.evaluate((element, position) => {
+                  element.scrollTo({
+                    top: position === "top" ? 0 : element.scrollHeight,
+                  });
+                }, action.position);
+                break;
+              case "assertScroll":
+                await locator.evaluate(async (element, position) => {
+                  for (let attempt = 0; attempt < 60; attempt += 1) {
+                    const distanceFromBottom =
+                      element.scrollHeight - element.clientHeight - element.scrollTop;
+                    const matches =
+                      position === "top" ? element.scrollTop <= 1 : distanceFromBottom <= 1;
+                    if (element.clientHeight > 0 && matches) {
+                      return;
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, 16));
+                  }
                   const distanceFromBottom =
                     element.scrollHeight - element.clientHeight - element.scrollTop;
-                  const matches =
-                    position === "top" ? element.scrollTop <= 1 : distanceFromBottom <= 1;
-                  if (element.clientHeight > 0 && matches) {
-                    return;
-                  }
-                  await new Promise((resolve) => setTimeout(resolve, 16));
-                }
-                const distanceFromBottom =
-                  element.scrollHeight - element.clientHeight - element.scrollTop;
-                throw new Error(
-                  `Expected ${position}; scrollTop=${element.scrollTop}, ` +
-                    `clientHeight=${element.clientHeight}, distanceFromBottom=${distanceFromBottom}`,
-                );
-              }, action.position);
-              break;
+                  throw new Error(
+                    `Expected ${position}; scrollTop=${element.scrollTop}, ` +
+                      `clientHeight=${element.clientHeight}, distanceFromBottom=${distanceFromBottom}`,
+                  );
+                }, action.position);
+                break;
+            }
+            if (action.waitAfterMs) {
+              await page.waitForTimeout(action.waitAfterMs);
+            }
           }
-          if (action.waitAfterMs) {
-            await page.waitForTimeout(action.waitAfterMs);
-          }
-        }
-        await page.screenshot({
-          path: outputPath,
-          fullPage: value.fullPage ?? false,
-          type: "png",
-        });
-        captured = true;
-      } finally {
-        try {
-          if (browser) {
-            await browser.close();
-          }
+          await page.screenshot({
+            path: outputPath,
+            fullPage: value.fullPage ?? false,
+            type: "png",
+          });
+          captured = true;
         } finally {
-          if (preview) {
-            await closeServer(preview.server);
-          }
-          if (!captured) {
-            rmSync(outputPath, { force: true });
+          try {
+            if (browser) {
+              await browser.close();
+            }
+          } finally {
+            if (preview) {
+              await closeServer(preview.server);
+            }
+            if (!captured) {
+              rmSync(outputPath, { force: true });
+            }
           }
         }
-      }
 
-      const url = `/api/artifacts/${filename}`;
-      const absoluteUrl = options.publicBaseUrl ? `${options.publicBaseUrl}${url}` : undefined;
-      const stored = options.eventStore.append({
-        kind: "assistant.artifact",
-        payload: {
-          caption: `${viewportName === "mobile" ? "Mobile" : "Desktop"} UI screenshot`,
-          url,
-          kind: "screenshot",
+        const url = `/api/artifacts/${filename}`;
+        const absoluteUrl = options.publicBaseUrl ? `${options.publicBaseUrl}${url}` : undefined;
+        const stored = options.eventStore.append({
+          kind: "assistant.artifact",
+          payload: {
+            caption: `${viewportName === "mobile" ? "Mobile" : "Desktop"} UI screenshot`,
+            url,
+            kind: "screenshot",
+            ...(absoluteUrl ? { absoluteUrl } : {}),
+          },
+        });
+        options.eventHub.publish(stored);
+
+        return {
+          status: "captured",
+          artifactUrl: url,
           ...(absoluteUrl ? { absoluteUrl } : {}),
-        },
-      });
-      options.eventHub.publish(stored);
-
-      return {
-        status: "captured",
-        artifactUrl: url,
-        ...(absoluteUrl ? { absoluteUrl } : {}),
-        source,
-        viewport: viewportName,
-        width: viewport.width,
-        height: viewport.height,
-        message:
-          "The screenshot was published to the conversation timeline as an inline image. " +
-          "Do not repeat the artifact URL as plain text; tell the user the screenshot is shown above.",
-      };
+          source,
+          viewport: viewportName,
+          width: viewport.width,
+          height: viewport.height,
+          message:
+            "The screenshot was published to the conversation timeline as an inline image. " +
+            "Do not repeat the artifact URL as plain text; tell the user the screenshot is shown above.",
+        };
+      } catch (error) {
+        return {
+          status: "failed",
+          error: error instanceof Error ? error.message : String(error),
+          message: "The screenshot was not captured. Report this error instead of retrying unchanged.",
+        };
+      }
     },
   });
 }

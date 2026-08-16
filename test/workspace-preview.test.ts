@@ -162,3 +162,41 @@ test("screenshot tool verifies workspace conversation scrolling with typed actio
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("screenshot tool reports unsafe deployed interactions without retrying the browser", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agent-outpost-screenshot-safety-"));
+  const eventStore = new EventStore(directory);
+  const eventHub = new SseHub();
+  const tool = createScreenshotTool({
+    artifactDirectory: join(directory, "artifacts"),
+    tailscaleUser: "owner@example.com",
+    workspacePublicDirectory: join(process.cwd(), "public"),
+    eventStore,
+    eventHub,
+  });
+
+  try {
+    assert.ok(tool.handler);
+    const actions = [{ type: "click", selector: "#send" }] as const;
+    const result = await tool.handler(
+      { source: "deployed", actions },
+      {
+        sessionId: "test",
+        toolCallId: "call-unsafe",
+        toolName: tool.name,
+        arguments: { source: "deployed", actions },
+      },
+    );
+
+    assert.deepEqual(result, {
+      status: "failed",
+      error: "Deployed clicks are not allowed on #send",
+      message: "The screenshot was not captured. Report this error instead of retrying unchanged.",
+    });
+    assert.deepEqual(eventStore.list(), []);
+  } finally {
+    eventHub.close();
+    eventStore[Symbol.dispose]();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
