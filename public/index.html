@@ -27,6 +27,15 @@
           <div><span>Load</span><strong id="load">--</strong></div>
         </div>
         </details>
+        <form id="new-chat-form" class="new-chat-form">
+          <label for="repository-select">Create a new chat</label>
+          <div class="new-chat-row">
+            <select id="repository-select" name="repository" required>
+              <option value="">Loading repositories…</option>
+            </select>
+            <button type="submit">New chat</button>
+          </div>
+        </form>
         <section id="chat-entries" class="chat-entries" aria-label="Chats"></section>
       </section>
 
@@ -35,7 +44,7 @@
           <button id="back-to-chats" class="back-button" type="button">← Chats</button>
           <div class="chat-heading">
             <p class="eyebrow">Active chat</p>
-            <h1>Mobile agent</h1>
+            <h1 id="chat-title">Mobile agent</h1>
           </div>
           <span id="state" class="state" data-state="starting">Starting</span>
         </header>

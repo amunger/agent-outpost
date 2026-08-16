@@ -56,15 +56,22 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
     dataDirectory: directory,
     publicDirectory,
     allowedTailscaleUser: "owner@example.com",
-    allowedGitRemote: "https://github.com/owner/agent-outpost.git",
-    githubRepository: "owner/agent-outpost",
+    allowedGitRemote: "https://github.com/amunger/agent-outpost.git",
+    githubRepository: "amunger/agent-outpost",
     deploymentRequestDirectory: join(directory, "deploy-requests"),
     artifactDirectory,
     sessionId: "test",
     model: "auto",
     production: true,
   };
-  const server = createOutpostServer({ config, agent, eventStore, eventHub, resourceMonitor });
+  const server = createOutpostServer({
+    config,
+    agent,
+    eventStore,
+    eventHub,
+    resourceMonitor,
+    listRepositories: () => ["amunger/agent-outpost", "amunger/second-repo"],
+  });
 
   try {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -118,6 +125,40 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
       headers: { "Tailscale-User-Login": "owner@example.com" },
     });
     assert.equal(styles.headers.get("cache-control"), "no-cache");
+
+    const repositories = await fetch(`${baseUrl}/api/repositories`, {
+      headers: { "Tailscale-User-Login": "owner@example.com" },
+    });
+    const repositoriesBody = (await repositories.json()) as { repositories: string[] };
+    assert.deepEqual(repositoriesBody.repositories, [
+      "amunger/agent-outpost",
+      "amunger/second-repo",
+    ]);
+
+    const createdChat = await fetch(`${baseUrl}/api/chats`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Tailscale-User-Login": "owner@example.com",
+        Origin: baseUrl,
+      },
+      body: JSON.stringify({ repository: "amunger/second-repo" }),
+    });
+    assert.equal(createdChat.status, 201);
+    const createdChatBody = (await createdChat.json()) as {
+      chat: { id: string; repository: string };
+    };
+    const chat = createdChatBody.chat;
+    assert.equal(chat.repository, "amunger/second-repo");
+
+    const selectedChat = await fetch(`${baseUrl}/api/chats/${encodeURIComponent(chat.id)}/select`, {
+      method: "POST",
+      headers: {
+        "Tailscale-User-Login": "owner@example.com",
+        Origin: baseUrl,
+      },
+    });
+    assert.equal(selectedChat.status, 200);
   } finally {
     eventHub.close();
     await new Promise<void>((resolve, reject) => {

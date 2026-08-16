@@ -1,10 +1,12 @@
 import { closeSync, constants, createReadStream, fstatSync, openSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { access, realpath } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, extname, join, normalize, relative } from "node:path";
 
 import type { AgentController } from "./agent.js";
 import type { OutpostConfig } from "./config.js";
+import type { AgentState } from "./domain.js";
 import { EventStore } from "./event-store.js";
 import { ResourceMonitor } from "./resource-monitor.js";
 import { SseHub } from "./sse-hub.js";
@@ -20,6 +22,66 @@ const contentTypes: Readonly<Record<string, string>> = {
 
 interface MessageBody {
   readonly content: string;
+}
+
+interface ChatCreateBody {
+  readonly repository: string;
+}
+
+interface ChatRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly repository: string;
+  lastUsedAt: string | null;
+  state: AgentState;
+}
+
+function repositoryLabel(value: string): string {
+  const match = value.match(/github\.com[/:]([^/]+\/[^/.]+)(?:\.git)?$/i);
+  return match?.[1] ?? value;
+}
+
+function parseChatCreateBody(value: unknown): ChatCreateBody {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("repository" in value) ||
+    typeof value.repository !== "string"
+  ) {
+    throw new Error("Request body must contain a string repository field");
+  }
+  const repository = value.repository.trim();
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
+    throw new Error("Repository must use owner/name format");
+  }
+  return { repository };
+}
+
+function listOwnedRepositories(owner: string): string[] {
+  const output = execFileSync(
+    "gh",
+    ["repo", "list", owner, "--json", "nameWithOwner", "--limit", "1000", "--no-archived"],
+    { encoding: "utf8", timeout: 30_000 },
+  );
+  const value: unknown = JSON.parse(output);
+  if (!Array.isArray(value)) {
+    throw new Error("GitHub CLI returned an invalid repository list");
+  }
+  return value
+    .flatMap((entry) =>
+      typeof entry === "object" &&
+      entry !== null &&
+      "nameWithOwner" in entry &&
+      typeof entry.nameWithOwner === "string"
+        ? [entry.nameWithOwner]
+        : [],
+    )
+    .filter((repository) => repository.startsWith(`${owner}/`))
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function repositoryOwner(repository: string | undefined): string | undefined {
+  return repository?.match(/^([^/]+)\//)?.[1];
 }
 
 function setSecurityHeaders(response: ServerResponse): void {
@@ -179,6 +241,11 @@ export function createWorkspacePreviewServer(publicDirectory: string): Server {
         return;
       }
 
+      if (request.method === "POST" && /^\/api\/chats\/[^/]+\/select$/.test(url.pathname)) {
+        sendJson(response, 200, { selected: true });
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/api/session/events") {
         response.statusCode = 200;
         response.setHeader("Content-Type", "text/event-stream");
@@ -266,10 +333,22 @@ export interface HttpServerDependencies {
   readonly eventStore: EventStore;
   readonly eventHub: SseHub;
   readonly resourceMonitor: ResourceMonitor;
+  readonly listRepositories?: (owner: string) => readonly string[];
 }
 
 export function createOutpostServer(dependencies: HttpServerDependencies) {
   const { config, agent, eventStore, eventHub, resourceMonitor } = dependencies;
+  const listRepositories = dependencies.listRepositories ?? listOwnedRepositories;
+  const owner = repositoryOwner(config.githubRepository);
+  const chats = new Map<string, ChatRecord>();
+  const initialRepository = repositoryLabel(config.allowedGitRemote ?? basename(config.workspace));
+  chats.set(config.sessionId, {
+    id: config.sessionId,
+    name: "Mobile agent",
+    repository: initialRepository,
+    lastUsedAt: eventStore.list().at(-1)?.createdAt ?? null,
+    state: agent.state,
+  });
 
   return createServer(async (request, response) => {
     setSecurityHeaders(response);
@@ -302,19 +381,59 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
       }
 
       if (request.method === "GET" && url.pathname === "/api/chats") {
-        const events = eventStore.list();
-        const lastEvent = events.at(-1);
+        const current = chats.get(config.sessionId);
+        if (current) {
+          current.lastUsedAt = eventStore.list().at(-1)?.createdAt ?? current.lastUsedAt;
+          current.state = agent.state;
+        }
         sendJson(response, 200, {
-          chats: [
-            {
-              id: config.sessionId,
-              name: "Mobile agent",
-              repository: config.allowedGitRemote ?? basename(config.workspace),
-              lastUsedAt: lastEvent?.createdAt ?? null,
-              state: agent.state,
-            },
-          ],
+          chats: [...chats.values()].sort(
+            (left, right) =>
+              (right.lastUsedAt ?? "").localeCompare(left.lastUsedAt ?? ""),
+          ),
         });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/repositories") {
+        if (!owner) {
+          throw new Error("GitHub repository owner is not configured");
+        }
+        sendJson(response, 200, { repositories: listRepositories(owner) });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/chats") {
+        const body = parseChatCreateBody(await readJsonBody(request));
+        if (!owner || !body.repository.startsWith(`${owner}/`)) {
+          throw new Error("Repository is not owned by the configured GitHub owner");
+        }
+        const repositories = listRepositories(owner);
+        if (!repositories.includes(body.repository)) {
+          throw new Error("Repository is not available for this Agent Outpost");
+        }
+        const id = `${config.sessionId}-${Date.now()}`;
+        const chat: ChatRecord = {
+          id,
+          name: "New chat",
+          repository: body.repository,
+          lastUsedAt: new Date().toISOString(),
+          state: agent.state,
+        };
+        chats.set(id, chat);
+        sendJson(response, 201, { chat });
+        return;
+      }
+
+      const chatSelection = url.pathname.match(/^\/api\/chats\/([^/]+)\/select$/);
+      if (request.method === "POST" && chatSelection) {
+        const chat = chats.get(decodeURIComponent(chatSelection[1] ?? ""));
+        if (!chat) {
+          sendJson(response, 404, { error: "Chat not found" });
+          return;
+        }
+        chat.lastUsedAt = new Date().toISOString();
+        sendJson(response, 200, { chat });
         return;
       }
 

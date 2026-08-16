@@ -1,7 +1,10 @@
 const chatList = document.querySelector("#chat-list");
 const chatView = document.querySelector("#chat-view");
 const chatEntries = document.querySelector("#chat-entries");
+const newChatForm = document.querySelector("#new-chat-form");
+const repositorySelect = document.querySelector("#repository-select");
 const backToChats = document.querySelector("#back-to-chats");
+const chatTitle = document.querySelector("#chat-title");
 const stateElement = document.querySelector("#state");
 const timeline = document.querySelector("#timeline");
 const scrollToBottomButton = document.querySelector("#scroll-to-bottom");
@@ -23,7 +26,10 @@ function assertElement(element, selector) {
 assertElement(chatList, "#chat-list");
 assertElement(chatView, "#chat-view");
 assertElement(chatEntries, "#chat-entries");
+assertElement(newChatForm, "#new-chat-form");
+assertElement(repositorySelect, "#repository-select");
 assertElement(backToChats, "#back-to-chats");
+assertElement(chatTitle, "#chat-title");
 assertElement(stateElement, "#state");
 assertElement(timeline, "#timeline");
 assertElement(scrollToBottomButton, "#scroll-to-bottom");
@@ -201,13 +207,21 @@ function renderChatEntry(chat) {
   const lastUsed = document.createElement("small");
   lastUsed.textContent = `Last used ${formatLastUsed(chat.lastUsedAt)}`;
   button.append(title, repository, lastUsed);
-  button.addEventListener("click", () => void openChat(chat.id));
+  button.addEventListener("click", () => void openChat(chat));
   return button;
 }
 
 async function loadChats() {
   const response = await request("/api/chats");
   chatEntries.replaceChildren(...response.chats.map(renderChatEntry));
+}
+
+async function loadRepositories() {
+  const response = await request("/api/repositories");
+  repositorySelect.replaceChildren(
+    new Option("Select a repository", ""),
+    ...response.repositories.map((repository) => new Option(repository, repository)),
+  );
 }
 
 function closeEvents() {
@@ -237,8 +251,10 @@ function showChatList() {
   void loadChats();
 }
 
-async function openChat() {
+async function openChat(chat) {
+  await request(`/api/chats/${encodeURIComponent(chat.id)}/select`, { method: "POST" });
   showChatView();
+  chatTitle.textContent = chat.name;
   autoScrollTimeline = true;
   const snapshot = await loadSession();
   scrollTimelineAfterLayout();
@@ -320,6 +336,29 @@ cancelButton.addEventListener("click", async () => {
 });
 
 backToChats.addEventListener("click", showChatList);
+newChatForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  errorElement.textContent = "";
+  const repository = repositorySelect.value;
+  if (!repository) {
+    errorElement.textContent = "Select a repository first";
+    return;
+  }
+  try {
+    const response = await request("/api/chats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repository }),
+    });
+    await openChat(response.chat);
+  } catch (error) {
+    errorElement.textContent = error instanceof Error ? error.message : String(error);
+  }
+});
 await loadChats();
+void loadRepositories().catch((error) => {
+  repositorySelect.replaceChildren(new Option("Repositories unavailable", ""));
+  errorElement.textContent = error instanceof Error ? error.message : String(error);
+});
 loadResources();
 setInterval(() => void loadResources(), 10_000);
