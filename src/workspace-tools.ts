@@ -45,7 +45,7 @@ function atomicWrite(anchoredPath: string, content: string, mode: number): void 
   }
 }
 
-function validateRelativePath(value: unknown): string {
+function validateRequestedPath(value: unknown): string {
   if (typeof value !== "string" || value.length < 1 || value.length > 500) {
     throw new Error("path must contain from 1 through 500 characters");
   }
@@ -62,7 +62,12 @@ function replaceTool(workspace: string): Tool<ReplaceArguments> {
       additionalProperties: false,
       required: ["path", "oldText", "newText"],
       properties: {
-        path: { type: "string", minLength: 1, maxLength: 500 },
+        path: {
+          type: "string",
+          minLength: 1,
+          maxLength: 500,
+          description: "A relative path or absolute path inside the configured workspace.",
+        },
         oldText: { type: "string", minLength: 1, maxLength: maximumEditTextLength },
         newText: { type: "string", maxLength: maximumEditTextLength },
       },
@@ -70,7 +75,7 @@ function replaceTool(workspace: string): Tool<ReplaceArguments> {
     defer: "never",
     skipPermission: true,
     handler: (value: ReplaceArguments) => {
-      const path = resolveWorkspaceFile(workspace, validateRelativePath(value.path), {
+      const path = resolveWorkspaceFile(workspace, validateRequestedPath(value.path), {
         requireExistingFile: true,
       });
       if (
@@ -128,14 +133,19 @@ function createTool(workspace: string): Tool<CreateArguments> {
       additionalProperties: false,
       required: ["path", "content"],
       properties: {
-        path: { type: "string", minLength: 1, maxLength: 500 },
+        path: {
+          type: "string",
+          minLength: 1,
+          maxLength: 500,
+          description: "A relative path or absolute path inside the configured workspace.",
+        },
         content: { type: "string", maxLength: maximumFileBytes },
       },
     },
     defer: "never",
     skipPermission: true,
     handler: (value: CreateArguments) => {
-      const path = resolveWorkspaceFile(workspace, validateRelativePath(value.path), {
+      const path = resolveWorkspaceFile(workspace, validateRequestedPath(value.path), {
         requireExistingFile: false,
       });
       if (typeof value.content !== "string" || Buffer.byteLength(value.content) > maximumFileBytes) {

@@ -59,6 +59,8 @@ Return the issue URL to the user. Do not run `gh issue create` through the shell
 - Use `replace_workspace_text` for an exact, single-occurrence replacement in
   an existing UTF-8 file.
 - Use `create_workspace_file` for a new text file under an existing directory.
+- Paths may be workspace-relative or absolute paths inside the configured
+  workspace; paths outside it are rejected.
 - Do not attempt shell redirection, `sed -i`, Python file writes, or other shell
   editing workarounds.
 - Read the file again after editing and run the relevant validation.

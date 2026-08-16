@@ -30,7 +30,7 @@ test("workspace tools replace exact text and create a new file", async () => {
     assert.ok(create.handler);
     assert.deepEqual(
       await create.handler(
-        { path: "created.txt", content: "created\n" },
+        { path: join(workspace, "created.txt"), content: "created\n" },
         {
           sessionId: "test",
           toolCallId: "create-1",
@@ -38,7 +38,7 @@ test("workspace tools replace exact text and create a new file", async () => {
           arguments: {},
         },
       ),
-      { status: "created", path: "created.txt" },
+      { status: "created", path: join(workspace, "created.txt") },
     );
     assert.equal(readFileSync(join(workspace, "created.txt"), "utf8"), "created\n");
   } finally {

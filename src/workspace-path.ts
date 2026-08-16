@@ -13,14 +13,15 @@ export function resolveWorkspaceFile(
   if (
     !requestedPath ||
     requestedPath.includes("\0") ||
-    isAbsolute(requestedPath) ||
-    requestedPath.replaceAll("\\", "/").split("/").includes("..")
+    (!isAbsolute(requestedPath) && requestedPath.replaceAll("\\", "/").split("/").includes(".."))
   ) {
-    throw new Error("path must be a relative workspace path without parent traversal");
+    throw new Error("path must remain inside the workspace without parent traversal");
   }
 
   const canonicalWorkspace = realpathSync(workspace);
-  const candidate = resolve(canonicalWorkspace, requestedPath);
+  const candidate = isAbsolute(requestedPath)
+    ? resolve(requestedPath)
+    : resolve(canonicalWorkspace, requestedPath);
   const relativePath = relative(canonicalWorkspace, candidate);
   const normalizedComponents = relativePath
     .replaceAll("\\", "/")
