@@ -41,3 +41,43 @@ test("EventStore persists and replays screenshot artifact events", () => {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("EventStore persists project-backed chats across restarts", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agent-outpost-chats-"));
+  try {
+    {
+      using store = new EventStore(directory);
+      store.ensureChat({
+        id: "default-chat",
+        projectId: "github-default",
+        name: "Default chat",
+        repository: "owner/default",
+        createdAt: new Date(0).toISOString(),
+        lastUsedAt: null,
+      });
+      store.createChat({
+        id: "second-chat",
+        projectId: "github-second",
+        name: "Second chat",
+        repository: "owner/second",
+      });
+    }
+
+    {
+      using store = new EventStore(directory);
+      const chats = store.listChats();
+      assert.equal(chats.length, 2);
+      assert.deepEqual(
+        chats.map(({ id, projectId, repository }) => ({ id, projectId, repository })),
+        [
+          { id: "second-chat", projectId: "github-second", repository: "owner/second" },
+          { id: "default-chat", projectId: "github-default", repository: "owner/default" },
+        ],
+      );
+      assert.equal(store.touchChat("missing-chat"), undefined);
+      assert.equal(store.touchChat("default-chat")?.id, "default-chat");
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

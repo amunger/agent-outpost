@@ -16,6 +16,24 @@ interface EventRow {
   readonly payload: string;
 }
 
+interface ChatRow {
+  readonly id: string;
+  readonly project_id: string;
+  readonly name: string;
+  readonly repository: string;
+  readonly created_at: string;
+  readonly last_used_at: string | null;
+}
+
+export interface StoredChat {
+  readonly id: string;
+  readonly projectId: string;
+  readonly name: string;
+  readonly repository: string;
+  readonly createdAt: string;
+  readonly lastUsedAt: string | null;
+}
+
 const storedKinds = new Set<OutpostEventKind>([
   "user.message",
   "assistant.message",
@@ -121,7 +139,82 @@ export class EventStore implements Disposable {
         created_at TEXT NOT NULL,
         payload TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS chats (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        repository TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS chats_last_used_at
+        ON chats(last_used_at DESC);
     `);
+  }
+
+  public ensureChat(
+    chat: Omit<StoredChat, "createdAt"> & { readonly createdAt?: string },
+  ): StoredChat {
+    const createdAt = chat.createdAt ?? new Date().toISOString();
+    this.#database
+      .prepare(
+        `INSERT OR IGNORE INTO chats
+          (id, project_id, name, repository, created_at, last_used_at)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        chat.id,
+        chat.projectId,
+        chat.name,
+        chat.repository,
+        createdAt,
+        chat.lastUsedAt,
+      );
+    const stored = this.#getChat(chat.id);
+    if (!stored) {
+      throw new Error(`SQLite did not persist chat ${chat.id}`);
+    }
+    return stored;
+  }
+
+  public createChat(chat: {
+    readonly id: string;
+    readonly projectId: string;
+    readonly name: string;
+    readonly repository: string;
+  }): StoredChat {
+    const createdAt = new Date().toISOString();
+    this.#database
+      .prepare(
+        `INSERT INTO chats
+          (id, project_id, name, repository, created_at, last_used_at)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(chat.id, chat.projectId, chat.name, chat.repository, createdAt, createdAt);
+    const stored = this.#getChat(chat.id);
+    if (!stored) {
+      throw new Error(`SQLite did not persist chat ${chat.id}`);
+    }
+    return stored;
+  }
+
+  public listChats(): StoredChat[] {
+    const rows = this.#database
+      .prepare(
+        `SELECT id, project_id, name, repository, created_at, last_used_at
+        FROM chats
+        ORDER BY COALESCE(last_used_at, created_at) DESC, id ASC`,
+      )
+      .all() as unknown as ChatRow[];
+    return rows.map((row) => this.#parseChat(row));
+  }
+
+  public touchChat(id: string): StoredChat | undefined {
+    const lastUsedAt = new Date().toISOString();
+    const result = this.#database
+      .prepare("UPDATE chats SET last_used_at = ? WHERE id = ?")
+      .run(lastUsedAt, id);
+    return result.changes === 0 ? undefined : this.#getChat(id);
   }
 
   public append<K extends Exclude<OutpostEventKind, "assistant.delta">>(
@@ -153,6 +246,28 @@ export class EventStore implements Disposable {
       )
       .all(after, limit) as unknown as EventRow[];
     return rows.map(parseRow);
+  }
+
+  #getChat(id: string): StoredChat | undefined {
+    const row = this.#database
+      .prepare(
+        `SELECT id, project_id, name, repository, created_at, last_used_at
+        FROM chats
+        WHERE id = ?`,
+      )
+      .get(id) as ChatRow | undefined;
+    return row ? this.#parseChat(row) : undefined;
+  }
+
+  #parseChat(row: ChatRow): StoredChat {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      name: row.name,
+      repository: row.repository,
+      createdAt: row.created_at,
+      lastUsedAt: row.last_used_at,
+    };
   }
 
   public [Symbol.dispose](): void {

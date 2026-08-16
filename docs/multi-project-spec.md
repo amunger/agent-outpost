@@ -30,9 +30,15 @@ The existing single-project configuration remains the default migration path.
 ## Terminology
 
 - **Project**: A registered repository and its Agent Outpost configuration.
-- **Session**: The persistent Copilot SDK runtime associated with one project.
+- **Chat**: One conversation and Copilot session within a project.
+- **Session**: The persistent Copilot SDK runtime associated with one chat.
+- **Workspace**: The isolated checkout or worktree assigned to one writable chat.
 - **Instance**: The server-side process or worker hosting a session.
 - **Active project**: The project currently selected in the client.
+
+A project can own several chats. Project identity controls repository and
+deployment policy; chat identity controls conversation history and runtime
+state. These identities must not be conflated.
 
 ## Project model
 
@@ -46,6 +52,8 @@ Project
   workspace: absolute path
   dataDirectory: absolute path
   allowedGitRemote: expected remote
+  integrationBranch: branch eligible for deployment
+  deploymentTargets: allowlisted target identifiers
   model: Copilot model selection
   enabled: boolean
   createdAt
@@ -59,10 +67,17 @@ paths. Project IDs must be normalized before use in URLs or filesystem paths.
 Per-project runtime state should include:
 
 ```text
-projects/<id>/events.sqlite
-projects/<id>/runtime/
+projects/<id>/repository.git
+projects/<id>/worktrees/<chat-id>/
+projects/<id>/chats/<chat-id>/outpost.db
+projects/<id>/chats/<chat-id>/runtime/
 projects/<id>/deploy-requests/
 ```
+
+Each writable chat receives its own worktree and branch. Multiple chats must
+never edit the same checkout. The first implementation may permit only one
+writable chat per project while additional chats are read-only; later phases
+can add explicit integration and conflict handling.
 
 Secrets and Tailscale policy remain server-level configuration and must not be
 stored in the project registry.
@@ -72,17 +87,25 @@ stored in the project registry.
 Introduce a `ProjectManager` responsible for lifecycle and lookup:
 
 - Load and validate the registry at startup.
-- Start a session lazily when a project is first opened.
+- Create or locate the canonical repository clone.
+- Create and remove per-chat worktrees.
+- Resolve project deployment policy.
+- Delegate chat lifecycle to a `ChatManager`.
+
+Introduce a `ChatManager` responsible for:
+
+- Persisting chat metadata separately from project policy.
+- Start a session lazily when a chat is first opened.
 - Stop idle sessions after a configurable timeout.
 - Limit the number of concurrent sessions.
-- Route messages, cancellation, event storage, and SSE subscriptions by
-  project ID.
-- Report lifecycle failures as project-scoped errors.
+- Route messages, cancellation, event storage, and SSE subscriptions by chat
+  ID.
+- Report lifecycle failures as chat-scoped errors.
 
 The initial implementation may use one Node process with isolated session
-objects. Each session must receive its own config, Copilot client, event store,
-and permission policy. A later implementation may move sessions into worker
-processes for stronger failure and memory isolation.
+objects. Each chat session must receive its own workspace, config, Copilot client, event
+store, event hub, and permission policy. A later implementation may move
+sessions into worker processes for stronger failure and memory isolation.
 
 ## HTTP API
 
@@ -93,10 +116,12 @@ GET    /api/projects
 POST   /api/projects
 PATCH  /api/projects/:projectId
 DELETE /api/projects/:projectId
-GET    /api/projects/:projectId/session
-GET    /api/projects/:projectId/session/events?after=<id>
-POST   /api/projects/:projectId/session/messages
-POST   /api/projects/:projectId/session/cancel
+GET    /api/projects/:projectId/chats
+POST   /api/projects/:projectId/chats
+GET    /api/chats/:chatId/session
+GET    /api/chats/:chatId/session/events?after=<id>
+POST   /api/chats/:chatId/session/messages
+POST   /api/chats/:chatId/session/cancel
 GET    /api/projects/:projectId/status/resources
 POST   /api/projects/:projectId/deploy
 ```
@@ -138,9 +163,13 @@ Replace the single global deployment target with a project-qualified request:
 
 ```text
 projectId
-commitSha
-targetSlot
+targetId
+requestedRevision
 ```
+
+`requestedRevision` may be `latest` or an internally resolved exact revision;
+it is never user input in the normal mobile workflow. The privileged controller
+resolves it against the configured integration branch.
 
 Deployment validation must verify:
 
@@ -149,6 +178,17 @@ Deployment validation must verify:
   the explicitly configured equivalent branch.
 - The working tree and remote match the project's policy.
 - The candidate starts and passes health checks before slot activation.
+
+Deployment behavior is provided by allowlisted adapters, never arbitrary
+commands from project configuration:
+
+- **GitHub workflow adapter**: dispatch or observe a configured workflow and
+  track its run and environment result.
+- **Local controller adapter**: write a constrained project-qualified request
+  to a root-owned controller with independent build, health, and rollback
+  state.
+- **Agent Outpost self-deployment adapter**: preserve the existing blue-green
+  controller as the default project's local adapter.
 
 Blue-green deployment should be scoped to a project. A failed candidate must
 roll back that project only, without restarting unrelated project sessions.
@@ -186,13 +226,16 @@ No existing conversation history should be copied or re-keyed unnecessarily.
 ### Phase 1: Domain and storage
 
 - Add project types, registry persistence, validation, and migrations.
-- Refactor event stores and permission policies to accept project config.
+- Persist chats with stable project identity.
+- Refactor event stores and permission policies to accept project and chat
+  config.
 - Add unit tests for duplicate IDs, path isolation, and migration.
 
 ### Phase 2: Runtime and API
 
 - Add `ProjectManager` and lazy lifecycle management.
-- Implement project-scoped session and SSE routes.
+- Add `ChatManager` and one isolated runtime/event store per chat.
+- Implement chat-scoped session and SSE routes.
 - Retain compatibility aliases for the default project.
 - Add API tests proving event and permission isolation.
 
@@ -205,6 +248,7 @@ No existing conversation history should be copied or re-keyed unnecessarily.
 ### Phase 4: Deployment
 
 - Qualify deployment requests by project.
+- Add allowlisted GitHub workflow and local-controller adapters.
 - Add project-scoped candidate validation, slot switching, and rollback.
 - Verify one project's deployment cannot interrupt another.
 

@@ -1,4 +1,5 @@
 import { closeSync, constants, createReadStream, fstatSync, openSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { access, realpath } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -7,7 +8,7 @@ import { basename, extname, join, normalize, relative } from "node:path";
 import type { AgentController } from "./agent.js";
 import type { OutpostConfig } from "./config.js";
 import type { AgentState } from "./domain.js";
-import { EventStore } from "./event-store.js";
+import { EventStore, type StoredChat } from "./event-store.js";
 import { ResourceMonitor } from "./resource-monitor.js";
 import { SseHub } from "./sse-hub.js";
 
@@ -30,8 +31,10 @@ interface ChatCreateBody {
 
 interface ChatRecord {
   readonly id: string;
+  readonly projectId: string;
   readonly name: string;
   readonly repository: string;
+  readonly createdAt: string;
   lastUsedAt: string | null;
   state: AgentState;
 }
@@ -82,6 +85,11 @@ function listOwnedRepositories(owner: string): string[] {
 
 function repositoryOwner(repository: string | undefined): string | undefined {
   return repository?.match(/^([^/]+)\//)?.[1];
+}
+
+function projectIdForRepository(repository: string): string {
+  const digest = createHash("sha256").update(repository.toLowerCase()).digest("hex").slice(0, 16);
+  return `github-${digest}`;
 }
 
 function setSecurityHeaders(response: ServerResponse): void {
@@ -340,13 +348,17 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
   const { config, agent, eventStore, eventHub, resourceMonitor } = dependencies;
   const listRepositories = dependencies.listRepositories ?? listOwnedRepositories;
   const owner = repositoryOwner(config.githubRepository);
-  const chats = new Map<string, ChatRecord>();
   const initialRepository = repositoryLabel(config.allowedGitRemote ?? basename(config.workspace));
-  chats.set(config.sessionId, {
+  eventStore.ensureChat({
     id: config.sessionId,
+    projectId: projectIdForRepository(initialRepository),
     name: "Mobile agent",
     repository: initialRepository,
     lastUsedAt: eventStore.list().at(-1)?.createdAt ?? null,
+  });
+  let selectedChatId = config.sessionId;
+  const chatRecord = (chat: StoredChat): ChatRecord => ({
+    ...chat,
     state: agent.state,
   });
 
@@ -381,17 +393,7 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
       }
 
       if (request.method === "GET" && url.pathname === "/api/chats") {
-        const current = chats.get(config.sessionId);
-        if (current) {
-          current.lastUsedAt = eventStore.list().at(-1)?.createdAt ?? current.lastUsedAt;
-          current.state = agent.state;
-        }
-        sendJson(response, 200, {
-          chats: [...chats.values()].sort(
-            (left, right) =>
-              (right.lastUsedAt ?? "").localeCompare(left.lastUsedAt ?? ""),
-          ),
-        });
+        sendJson(response, 200, { chats: eventStore.listChats().map(chatRecord) });
         return;
       }
 
@@ -412,28 +414,25 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
         if (!repositories.includes(body.repository)) {
           throw new Error("Repository is not available for this Agent Outpost");
         }
-        const id = `${config.sessionId}-${Date.now()}`;
-        const chat: ChatRecord = {
-          id,
+        const chat = eventStore.createChat({
+          id: randomUUID(),
+          projectId: projectIdForRepository(body.repository),
           name: "New chat",
           repository: body.repository,
-          lastUsedAt: new Date().toISOString(),
-          state: agent.state,
-        };
-        chats.set(id, chat);
-        sendJson(response, 201, { chat });
+        });
+        sendJson(response, 201, { chat: chatRecord(chat) });
         return;
       }
 
       const chatSelection = url.pathname.match(/^\/api\/chats\/([^/]+)\/select$/);
       if (request.method === "POST" && chatSelection) {
-        const chat = chats.get(decodeURIComponent(chatSelection[1] ?? ""));
+        const chat = eventStore.touchChat(decodeURIComponent(chatSelection[1] ?? ""));
         if (!chat) {
           sendJson(response, 404, { error: "Chat not found" });
           return;
         }
-        chat.lastUsedAt = new Date().toISOString();
-        sendJson(response, 200, { chat });
+        selectedChatId = chat.id;
+        sendJson(response, 200, { chat: chatRecord(chat) });
         return;
       }
 
@@ -455,6 +454,7 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
 
       if (request.method === "POST" && url.pathname === "/api/session/messages") {
         const message = parseMessageBody(await readJsonBody(request));
+        eventStore.touchChat(selectedChatId);
         await agent.send(message.content);
         sendJson(response, 202, { accepted: true });
         return;

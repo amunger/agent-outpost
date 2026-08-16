@@ -146,10 +146,12 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
     });
     assert.equal(createdChat.status, 201);
     const createdChatBody = (await createdChat.json()) as {
-      chat: { id: string; repository: string };
+      chat: { id: string; projectId: string; repository: string };
     };
     const chat = createdChatBody.chat;
     assert.equal(chat.repository, "amunger/second-repo");
+    assert.match(chat.projectId, /^github-[0-9a-f]{16}$/);
+    assert.equal(eventStore.listChats().some(({ id }) => id === chat.id), true);
 
     const selectedChat = await fetch(`${baseUrl}/api/chats/${encodeURIComponent(chat.id)}/select`, {
       method: "POST",
