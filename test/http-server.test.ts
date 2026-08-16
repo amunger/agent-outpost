@@ -161,6 +161,49 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
       },
     });
     assert.equal(selectedChat.status, 200);
+
+    const statistics = await fetch(
+      `${baseUrl}/api/chats/${encodeURIComponent(chat.id)}/statistics`,
+      { headers: { "Tailscale-User-Login": "owner@example.com" } },
+    );
+    assert.equal(statistics.status, 200);
+    const statisticsBody = (await statistics.json()) as {
+      statistics: {
+        messageCount: number;
+        estimatedTokens: number;
+        aicUsage: number;
+        firstMessageAt: string | null;
+        createdAt: string;
+      };
+    };
+    assert.equal(statisticsBody.statistics.messageCount, 0);
+    assert.equal(statisticsBody.statistics.firstMessageAt, null);
+    assert.equal(typeof statisticsBody.statistics.createdAt, "string");
+
+    const primaryStatistics = await fetch(
+      `${baseUrl}/api/chats/${encodeURIComponent("test")}/statistics`,
+      { headers: { "Tailscale-User-Login": "owner@example.com" } },
+    );
+    assert.equal(primaryStatistics.status, 200);
+
+    const protectedDelete = await fetch(`${baseUrl}/api/chats/${encodeURIComponent("test")}`, {
+      method: "DELETE",
+      headers: { "Tailscale-User-Login": "owner@example.com", Origin: baseUrl },
+    });
+    assert.equal(protectedDelete.status, 409);
+
+    const deletedChat = await fetch(`${baseUrl}/api/chats/${encodeURIComponent(chat.id)}`, {
+      method: "DELETE",
+      headers: { "Tailscale-User-Login": "owner@example.com", Origin: baseUrl },
+    });
+    assert.equal(deletedChat.status, 200);
+    assert.equal(eventStore.listChats().some(({ id }) => id === chat.id), false);
+
+    const missingDelete = await fetch(`${baseUrl}/api/chats/${encodeURIComponent(chat.id)}`, {
+      method: "DELETE",
+      headers: { "Tailscale-User-Login": "owner@example.com", Origin: baseUrl },
+    });
+    assert.equal(missingDelete.status, 404);
   } finally {
     eventHub.close();
     await new Promise<void>((resolve, reject) => {

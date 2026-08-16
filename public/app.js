@@ -196,7 +196,22 @@ function formatLastUsed(value) {
   return new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
+function formatChatStatistics(statistics) {
+  const firstMessage = statistics.firstMessageAt
+    ? formatLastUsed(statistics.firstMessageAt)
+    : `No messages yet (created ${formatLastUsed(statistics.createdAt)})`;
+  return [
+    `Messages: ${statistics.messageCount}`,
+    `Estimated tokens: ${statistics.estimatedTokens.toLocaleString()}`,
+    `AIC usage: ${statistics.aicUsage}`,
+    `First message: ${firstMessage}`,
+  ].join("\n");
+}
+
 function renderChatEntry(chat) {
+  const row = document.createElement("div");
+  row.className = "chat-row";
+
   const button = document.createElement("button");
   button.className = "chat-entry";
   button.type = "button";
@@ -208,7 +223,51 @@ function renderChatEntry(chat) {
   lastUsed.textContent = `Last used ${formatLastUsed(chat.lastUsedAt)}`;
   button.append(title, repository, lastUsed);
   button.addEventListener("click", () => void openChat(chat));
-  return button;
+
+  const controls = document.createElement("div");
+  controls.className = "chat-controls";
+
+  const info = document.createElement("button");
+  info.className = "chat-control";
+  info.type = "button";
+  info.textContent = "Info";
+  info.setAttribute("aria-label", `Show details for ${chat.name}`);
+  info.addEventListener("click", async () => {
+    errorElement.textContent = "";
+    try {
+      const response = await request(`/api/chats/${encodeURIComponent(chat.id)}/statistics`);
+      details.textContent = formatChatStatistics(response.statistics);
+      details.hidden = false;
+    } catch (error) {
+      errorElement.textContent = error instanceof Error ? error.message : String(error);
+    }
+  });
+
+  const remove = document.createElement("button");
+  remove.className = "chat-control chat-delete";
+  remove.type = "button";
+  remove.textContent = "Delete";
+  remove.setAttribute("aria-label", `Delete ${chat.name}`);
+  remove.addEventListener("click", async () => {
+    errorElement.textContent = "";
+    if (!confirm(`Delete the chat for ${chat.repository}? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await request(`/api/chats/${encodeURIComponent(chat.id)}`, { method: "DELETE" });
+      await loadChats();
+    } catch (error) {
+      errorElement.textContent = error instanceof Error ? error.message : String(error);
+    }
+  });
+
+  const details = document.createElement("pre");
+  details.className = "chat-details";
+  details.hidden = true;
+
+  controls.append(info, remove);
+  row.append(button, controls, details);
+  return row;
 }
 
 async function loadChats() {

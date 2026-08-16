@@ -436,6 +436,40 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
         return;
       }
 
+      const chatStatistics = url.pathname.match(/^\/api\/chats\/([^/]+)\/statistics$/);
+      if (request.method === "GET" && chatStatistics) {
+        const id = decodeURIComponent(chatStatistics[1] ?? "");
+        const chat = eventStore.listChats().find((entry) => entry.id === id);
+        if (!chat) {
+          sendJson(response, 404, { error: "Chat not found" });
+          return;
+        }
+        const statistics =
+          id === config.sessionId
+            ? eventStore.chatStatistics()
+            : { messageCount: 0, estimatedTokens: 0, aicUsage: 0, firstMessageAt: null };
+        sendJson(response, 200, { statistics: { ...statistics, createdAt: chat.createdAt } });
+        return;
+      }
+
+      const chatDeletion = url.pathname.match(/^\/api\/chats\/([^/]+)$/);
+      if (request.method === "DELETE" && chatDeletion) {
+        const id = decodeURIComponent(chatDeletion[1] ?? "");
+        if (id === config.sessionId) {
+          sendJson(response, 409, { error: "The primary chat cannot be deleted" });
+          return;
+        }
+        if (!eventStore.deleteChat(id)) {
+          sendJson(response, 404, { error: "Chat not found" });
+          return;
+        }
+        if (selectedChatId === id) {
+          selectedChatId = config.sessionId;
+        }
+        sendJson(response, 200, { deleted: true });
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/api/session") {
         sendJson(response, 200, { state: agent.state, events: eventStore.list() });
         return;

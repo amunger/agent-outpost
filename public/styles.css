@@ -159,6 +159,46 @@ select {
   background: #020617;
 }
 
+.chat-row {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid #1e293b;
+  border-radius: 0.8rem;
+  background: #111827;
+}
+
+.chat-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chat-control {
+  min-width: 4.5rem;
+  min-height: 2.25rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid #475569;
+  border-radius: 0.55rem;
+  color: #e2e8f0;
+  background: transparent;
+  font-size: 0.85rem;
+}
+
+.chat-delete {
+  border-color: #7f1d1d;
+  color: #fecaca;
+}
+
+.chat-details {
+  margin: 0;
+  padding: 0.6rem;
+  border-radius: 0.55rem;
+  background: #020617;
+  color: #cbd5e1;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+
 .chat-entry {
   display: grid;
   justify-items: start;

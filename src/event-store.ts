@@ -34,6 +34,13 @@ export interface StoredChat {
   readonly lastUsedAt: string | null;
 }
 
+export interface ChatStatistics {
+  readonly messageCount: number;
+  readonly estimatedTokens: number;
+  readonly aicUsage: number;
+  readonly firstMessageAt: string | null;
+}
+
 const storedKinds = new Set<OutpostEventKind>([
   "user.message",
   "assistant.message",
@@ -207,6 +214,35 @@ export class EventStore implements Disposable {
       )
       .all() as unknown as ChatRow[];
     return rows.map((row) => this.#parseChat(row));
+  }
+
+  public deleteChat(id: string): boolean {
+    const result = this.#database.prepare("DELETE FROM chats WHERE id = ?").run(id);
+    return result.changes > 0;
+  }
+
+  public chatStatistics(): ChatStatistics {
+    const rows = this.#database
+      .prepare(
+        `SELECT kind, created_at, payload FROM events
+        WHERE kind IN ('user.message', 'assistant.message')
+        ORDER BY id ASC`,
+      )
+      .all() as unknown as Array<Omit<EventRow, "id">>;
+    let characters = 0;
+    for (const row of rows) {
+      const payload: unknown = JSON.parse(row.payload);
+      const content =
+        typeof payload === "object" && payload !== null ? stringProperty(payload, "content") : undefined;
+      characters += content?.length ?? 0;
+    }
+    const userMessages = rows.filter((row) => row.kind === "user.message").length;
+    return {
+      messageCount: rows.length,
+      estimatedTokens: Math.ceil(characters / 4),
+      aicUsage: userMessages,
+      firstMessageAt: rows[0]?.created_at ?? null,
+    };
   }
 
   public touchChat(id: string): StoredChat | undefined {
