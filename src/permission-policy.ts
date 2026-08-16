@@ -97,7 +97,7 @@ function approvePathRequest(
     return reject("Changing Git remotes or hooks is not allowed");
   }
   return isWithinWorkspace(workspace, candidate)
-    ? { kind: "approved" }
+    ? { kind: "approve-once" }
     : reject(`Access outside the configured workspace is not allowed: ${candidate}`);
 }
 
@@ -140,14 +140,14 @@ function approveShellRequest(
       return reject("The origin push URL does not match OUTPOST_ALLOWED_GIT_REMOTE");
     }
   }
-  return { kind: "approved" };
+  return { kind: "approve-once" };
 }
 
 function approveUrlRequest(
   request: Extract<PermissionRequest, { kind: "url" }>,
 ): PermissionRequestResult {
   return isAllowedUrl(request.url)
-    ? { kind: "approved" }
+    ? { kind: "approve-once" }
     : reject("The requested network destination is not allowlisted");
 }
 

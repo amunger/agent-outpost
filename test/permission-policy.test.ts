@@ -22,7 +22,7 @@ test("permission policy allows workspace writes", async () => {
     canOfferSessionApproval: false,
   } satisfies PermissionRequest;
 
-  assert.deepEqual(await handler(request, invocation), { kind: "approved" });
+  assert.deepEqual(await handler(request, invocation), { kind: "approve-once" });
 });
 
 test("permission policy rejects writes outside the workspace", async () => {
@@ -58,7 +58,7 @@ test("permission policy allows ordinary git pushes but rejects force pushes", as
   try {
     assert.equal(
       (await gitHandler(shellRequest("git push origin agent/current"), invocation)).kind,
-      "approved",
+      "approve-once",
     );
     assert.equal(
       (
