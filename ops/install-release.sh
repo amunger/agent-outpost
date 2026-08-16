@@ -43,7 +43,8 @@ runuser -u agent-outpost -- rsync -a --delete \
   "${source_directory}/" "${release_directory}/"
 
 runuser -u agent-outpost -- bash -c "cd '${release_directory}' && npm ci --omit=dev"
-git -C "${source_directory}" rev-parse HEAD > "${release_directory}/.agent-outpost-commit"
+runuser -u agent-outpost -- git -C "${source_directory}" rev-parse HEAD \
+  > "${release_directory}/.agent-outpost-commit"
 chown -R root:root "${release_directory}"
 find "${release_directory}" -type d -exec chmod 0755 {} +
 find "${release_directory}" -type f -exec chmod 0644 {} +
