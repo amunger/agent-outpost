@@ -69,7 +69,9 @@ OUTPOST_ALLOWED_TAILSCALE_USER=
 OUTPOST_ALLOWED_GIT_REMOTE=https://github.com/amunger/agent-outpost.git
 OUTPOST_GITHUB_REPOSITORY=amunger/agent-outpost
 OUTPOST_DEPLOY_REQUEST_DIR=/var/lib/agent-outpost/deploy-requests
+OUTPOST_ARTIFACT_DIR=/var/lib/agent-outpost/artifacts
 COPILOT_HOME=/var/lib/agent-outpost/copilot
+PLAYWRIGHT_BROWSERS_PATH=/var/lib/agent-outpost/playwright
 EOF
   chmod 0600 /etc/agent-outpost/agent-outpost.env
 fi

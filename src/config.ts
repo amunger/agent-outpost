@@ -10,6 +10,7 @@ export interface OutpostConfig {
   readonly allowedGitRemote?: string;
   readonly githubRepository?: string;
   readonly deploymentRequestDirectory: string;
+  readonly artifactDirectory: string;
   readonly sessionId: string;
   readonly model: string;
   readonly production: boolean;
@@ -56,6 +57,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Outpos
       environment.OUTPOST_DEPLOY_REQUEST_DIR,
       "./data/deploy-requests",
     ),
+    artifactDirectory: requiredPath(environment.OUTPOST_ARTIFACT_DIR, "./data/artifacts"),
     sessionId: environment.OUTPOST_SESSION_ID?.trim() || "agent-outpost-main",
     model: environment.OUTPOST_MODEL?.trim() || "auto",
     production,

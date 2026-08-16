@@ -54,6 +54,27 @@ create_agent_outpost_issue({
 
 Return the issue URL to the user. Do not run `gh issue create` through the shell.
 
+## Edit files when apply_patch is unavailable
+
+- Use `replace_workspace_text` for an exact, single-occurrence replacement in
+  an existing UTF-8 file.
+- Use `create_workspace_file` for a new text file under an existing directory.
+- Do not attempt shell redirection, `sed -i`, Python file writes, or other shell
+  editing workarounds.
+- Read the file again after editing and run the relevant validation.
+
+Both tools reject `.git`, parent traversal, symbolic links, ambiguous
+replacements, existing create targets, and files over their size limits.
+
+## Capture the live UI
+
+Call `capture_agent_outpost_screenshot` with `viewport: "mobile"` for normal
+phone validation or `"desktop"` for a wide layout. Set `fullPage: true` only
+when the entire conversation is needed.
+
+Return the `/api/artifacts/...png` URL to the user. The artifact endpoint is
+available only through the authenticated Agent Outpost API.
+
 ## Verification
 
 - After publishing, use the returned SHA rather than reading a shortened SHA.

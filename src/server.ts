@@ -21,6 +21,8 @@ const agent = new CopilotAgent({
   ...(config.allowedGitRemote ? { allowedGitRemote: config.allowedGitRemote } : {}),
   deploymentRequestDirectory: config.deploymentRequestDirectory,
   ...(config.githubRepository ? { githubRepository: config.githubRepository } : {}),
+  artifactDirectory: config.artifactDirectory,
+  ...(config.allowedTailscaleUser ? { tailscaleUser: config.allowedTailscaleUser } : {}),
   eventStore,
   eventHub,
 });

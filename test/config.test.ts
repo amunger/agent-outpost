@@ -12,6 +12,7 @@ test("loadConfig applies safe local defaults", () => {
   assert.equal(config.allowedTailscaleUser, undefined);
   assert.equal(config.production, false);
   assert.match(config.deploymentRequestDirectory, /data[\\/]deploy-requests$/);
+  assert.match(config.artifactDirectory, /data[\\/]artifacts$/);
 });
 
 test("loadConfig requires a Tailscale identity in production", () => {

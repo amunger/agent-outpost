@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,8 +31,17 @@ class FakeAgent implements AgentController {
 test("HTTP server enforces Tailscale identity and same-origin mutations", async () => {
   const directory = mkdtempSync(join(tmpdir(), "agent-outpost-http-"));
   const publicDirectory = join(directory, "public");
+  const artifactDirectory = join(directory, "artifacts");
   mkdirSync(publicDirectory);
+  mkdirSync(artifactDirectory);
   writeFileSync(join(publicDirectory, "index.html"), "<h1>Outpost</h1>");
+  const artifactName = "screenshot-123-12345678-1234-1234-1234-123456789abc.png";
+  const expiredArtifactName = "screenshot-122-12345678-1234-1234-1234-123456789abc.png";
+  writeFileSync(join(artifactDirectory, artifactName), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const expiredArtifactPath = join(artifactDirectory, expiredArtifactName);
+  writeFileSync(expiredArtifactPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const expiredAt = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+  utimesSync(expiredArtifactPath, expiredAt, expiredAt);
 
   const eventStore = new EventStore(directory);
   const resourceMonitor = new ResourceMonitor();
@@ -48,6 +57,7 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
     allowedGitRemote: "https://github.com/owner/agent-outpost.git",
     githubRepository: "owner/agent-outpost",
     deploymentRequestDirectory: join(directory, "deploy-requests"),
+    artifactDirectory,
     sessionId: "test",
     model: "auto",
     production: true,
@@ -84,6 +94,18 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
     });
     assert.equal(accepted.status, 202);
     assert.deepEqual(agent.messages, ["hello"]);
+
+    const artifact = await fetch(`${baseUrl}/api/artifacts/${artifactName}`, {
+      headers: { "Tailscale-User-Login": "owner@example.com" },
+    });
+    assert.equal(artifact.status, 200);
+    assert.equal(artifact.headers.get("content-type"), "image/png");
+    assert.deepEqual(Buffer.from(await artifact.arrayBuffer()), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    const expiredArtifact = await fetch(`${baseUrl}/api/artifacts/${expiredArtifactName}`, {
+      headers: { "Tailscale-User-Login": "owner@example.com" },
+    });
+    assert.equal(expiredArtifact.status, 404);
   } finally {
     eventHub.close();
     await new Promise<void>((resolve, reject) => {

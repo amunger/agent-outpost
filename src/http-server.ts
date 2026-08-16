@@ -1,4 +1,4 @@
-import { createReadStream } from "node:fs";
+import { closeSync, constants, createReadStream, fstatSync, openSync } from "node:fs";
 import { access, realpath } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, normalize, relative } from "node:path";
@@ -135,6 +135,45 @@ async function serveStatic(
   createReadStream(candidate).pipe(response);
 }
 
+async function serveArtifact(
+  requestPath: string,
+  config: OutpostConfig,
+  response: ServerResponse,
+): Promise<void> {
+  const filename = requestPath.slice("/api/artifacts/".length);
+  if (!/^screenshot-[0-9]+-[0-9a-f-]{36}\.png$/.test(filename)) {
+    sendJson(response, 404, { error: "Artifact not found" });
+    return;
+  }
+  const candidate = join(config.artifactDirectory, filename);
+  let descriptor: number;
+  try {
+    descriptor = openSync(candidate, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ELOOP")
+    ) {
+      sendJson(response, 404, { error: "Artifact not found" });
+      return;
+    }
+    throw error;
+  }
+  const metadata = fstatSync(descriptor);
+  const expired = metadata.mtimeMs < Date.now() - 7 * 24 * 60 * 60 * 1000;
+  if (!metadata.isFile() || expired) {
+    closeSync(descriptor);
+    sendJson(response, 404, { error: "Artifact not found" });
+    return;
+  }
+  response.statusCode = 200;
+  response.setHeader("Content-Type", "image/png");
+  response.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+  response.setHeader("Cache-Control", "private, no-cache");
+  createReadStream(candidate, { fd: descriptor, autoClose: true }).pipe(response);
+}
+
 export interface HttpServerDependencies {
   readonly config: OutpostConfig;
   readonly agent: AgentController;
@@ -207,6 +246,11 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
 
       if (request.method === "GET" && url.pathname === "/api/status/resources") {
         sendJson(response, 200, await resourceMonitor.snapshot(config.dataDirectory));
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname.startsWith("/api/artifacts/")) {
+        await serveArtifact(url.pathname, config, response);
         return;
       }
 

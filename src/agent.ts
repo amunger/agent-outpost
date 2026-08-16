@@ -4,6 +4,8 @@ import type { AgentState, OutpostEvent } from "./domain.js";
 import { EventStore } from "./event-store.js";
 import { createDeploymentTool } from "./deployment-tool.js";
 import { createRepositoryTools } from "./repository-tools.js";
+import { createScreenshotTool } from "./screenshot-tool.js";
+import { createWorkspaceTools } from "./workspace-tools.js";
 import { createPermissionHandler } from "./permission-policy.js";
 import { SseHub } from "./sse-hub.js";
 
@@ -22,6 +24,8 @@ export interface CopilotAgentOptions {
   readonly allowedGitRemote?: string;
   readonly deploymentRequestDirectory: string;
   readonly githubRepository?: string;
+  readonly artifactDirectory: string;
+  readonly tailscaleUser?: string;
   readonly eventStore: EventStore;
   readonly eventHub: SseHub;
 }
@@ -38,6 +42,8 @@ export class CopilotAgent implements AgentController {
   readonly #allowedGitRemote: string | undefined;
   readonly #deploymentRequestDirectory: string;
   readonly #githubRepository: string | undefined;
+  readonly #artifactDirectory: string;
+  readonly #tailscaleUser: string | undefined;
   readonly #eventStore: EventStore;
   readonly #eventHub: SseHub;
   #session: CopilotSession | undefined;
@@ -52,6 +58,8 @@ export class CopilotAgent implements AgentController {
     this.#allowedGitRemote = options.allowedGitRemote;
     this.#deploymentRequestDirectory = options.deploymentRequestDirectory;
     this.#githubRepository = options.githubRepository;
+    this.#artifactDirectory = options.artifactDirectory;
+    this.#tailscaleUser = options.tailscaleUser;
     this.#eventStore = options.eventStore;
     this.#eventHub = options.eventHub;
   }
@@ -81,6 +89,16 @@ export class CopilotAgent implements AgentController {
               allowedGitRemote: this.#allowedGitRemote,
               githubRepository: this.#githubRepository,
             });
+      const workspaceTools = createWorkspaceTools(this.#workspace);
+      const screenshotTools =
+        this.#tailscaleUser === undefined
+          ? []
+          : [
+              createScreenshotTool({
+                artifactDirectory: this.#artifactDirectory,
+                tailscaleUser: this.#tailscaleUser,
+              }),
+            ];
       const commonConfig = {
         clientName: "agent-outpost",
         workingDirectory: this.#workspace,
@@ -88,7 +106,7 @@ export class CopilotAgent implements AgentController {
         enableExperimentalMode: true,
         enableConfigDiscovery: true,
         onPermissionRequest: createPermissionHandler(this.#workspace, this.#allowedGitRemote),
-        tools: [...deploymentTools, ...repositoryTools],
+        tools: [...deploymentTools, ...repositoryTools, ...workspaceTools, ...screenshotTools],
         systemMessage: {
           mode: "append" as const,
           content:
@@ -97,6 +115,8 @@ export class CopilotAgent implements AgentController {
             "Never force-push, change credentials, access production secrets, or make system-level changes. " +
             "Use publish_agent_outpost_changes instead of shell git commit or push commands. " +
             "Use create_agent_outpost_issue instead of the gh shell command. " +
+            "If apply_patch is unavailable, use replace_workspace_text or create_workspace_file. " +
+            "Use capture_agent_outpost_screenshot for visual UI validation. " +
             "After publishing a validated commit to agent/current, call deploy_agent_outpost with the returned commit SHA. " +
             "Tell the user immediately when deployment has been scheduled.",
         },

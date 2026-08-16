@@ -29,6 +29,37 @@ function setState(state) {
   cancelButton.disabled = state !== "running";
 }
 
+function renderContent(container, content) {
+  container.replaceChildren();
+  const pattern = /(https?:\/\/[^\s]+|\/api\/artifacts\/screenshot-[0-9]+-[0-9a-f-]{36}\.png)/g;
+  let offset = 0;
+  for (const match of content.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > offset) {
+      container.append(document.createTextNode(content.slice(offset, index)));
+    }
+    const target = match[0];
+    const link = document.createElement("a");
+    link.href = target;
+    link.textContent = target;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    container.append(link);
+    if (target.startsWith("/api/artifacts/")) {
+      const image = document.createElement("img");
+      image.className = "screenshot";
+      image.src = target;
+      image.alt = "Agent Outpost screenshot";
+      image.loading = "lazy";
+      container.append(image);
+    }
+    offset = index + target.length;
+  }
+  if (offset < content.length) {
+    container.append(document.createTextNode(content.slice(offset)));
+  }
+}
+
 function appendMessage(role, content, createdAt) {
   const article = document.createElement("article");
   article.className = "message";
@@ -36,7 +67,7 @@ function appendMessage(role, content, createdAt) {
   const metadata = document.createElement("small");
   metadata.textContent = `${role === "user" ? "You" : role === "error" ? "Error" : "Agent"} · ${new Date(createdAt).toLocaleTimeString()}`;
   const text = document.createElement("div");
-  text.textContent = content;
+  renderContent(text, content);
   article.append(metadata, text);
   timeline.append(article);
   timeline.scrollTop = timeline.scrollHeight;
@@ -50,7 +81,7 @@ function handleEvent(event) {
       break;
     case "assistant.message":
       if (streamingMessage) {
-        streamingMessage.textContent = event.payload.content;
+        renderContent(streamingMessage, event.payload.content);
         streamingMessage = undefined;
       } else {
         appendMessage("assistant", event.payload.content, event.createdAt);
@@ -60,7 +91,7 @@ function handleEvent(event) {
       if (!streamingMessage) {
         streamingMessage = appendMessage("assistant", "", event.createdAt);
       }
-      streamingMessage.textContent += event.payload.content;
+      streamingMessage.append(document.createTextNode(event.payload.content));
       timeline.scrollTop = timeline.scrollHeight;
       break;
     case "session.state":

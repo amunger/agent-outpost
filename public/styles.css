@@ -141,6 +141,19 @@ h1 {
   color: #94a3b8;
 }
 
+.message a {
+  color: #5eead4;
+}
+
+.screenshot {
+  display: block;
+  width: min(100%, 24rem);
+  height: auto;
+  margin-top: 0.75rem;
+  border: 1px solid #334155;
+  border-radius: 0.65rem;
+}
+
 .composer {
   position: sticky;
   bottom: 0;

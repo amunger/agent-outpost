@@ -27,7 +27,9 @@ install -d -o root -g root -m 0755 \
   /var/lib/agent-outpost/deployment
 install -d -o agent-outpost -g agent-outpost -m 0700 \
   /var/lib/agent-outpost/deploy-requests \
-  /var/lib/agent-outpost/builds
+  /var/lib/agent-outpost/builds \
+  /var/lib/agent-outpost/artifacts \
+  /var/lib/agent-outpost/playwright
 
 install -o root -g root -m 0755 \
   "${source_directory}/ops/agent-outpost-deploy" \
@@ -63,6 +65,28 @@ else
     'OUTPOST_DEPLOY_REQUEST_DIR=/var/lib/agent-outpost/deploy-requests' \
     >> /etc/agent-outpost/agent-outpost.env
 fi
+if grep -q '^OUTPOST_ARTIFACT_DIR=' /etc/agent-outpost/agent-outpost.env; then
+  sed -i \
+    's|^OUTPOST_ARTIFACT_DIR=.*|OUTPOST_ARTIFACT_DIR=/var/lib/agent-outpost/artifacts|' \
+    /etc/agent-outpost/agent-outpost.env
+else
+  printf '%s\n' 'OUTPOST_ARTIFACT_DIR=/var/lib/agent-outpost/artifacts' \
+    >> /etc/agent-outpost/agent-outpost.env
+fi
+if grep -q '^PLAYWRIGHT_BROWSERS_PATH=' /etc/agent-outpost/agent-outpost.env; then
+  sed -i \
+    's|^PLAYWRIGHT_BROWSERS_PATH=.*|PLAYWRIGHT_BROWSERS_PATH=/var/lib/agent-outpost/playwright|' \
+    /etc/agent-outpost/agent-outpost.env
+else
+  printf '%s\n' 'PLAYWRIGHT_BROWSERS_PATH=/var/lib/agent-outpost/playwright' \
+    >> /etc/agent-outpost/agent-outpost.env
+fi
+
+cd "${source_directory}"
+./node_modules/.bin/playwright install-deps chromium
+runuser -u agent-outpost -- env \
+  PLAYWRIGHT_BROWSERS_PATH=/var/lib/agent-outpost/playwright \
+  ./node_modules/.bin/playwright install chromium
 if grep -q '^OUTPOST_GITHUB_REPOSITORY=' /etc/agent-outpost/agent-outpost.env; then
   sed -i \
     's|^OUTPOST_GITHUB_REPOSITORY=.*|OUTPOST_GITHUB_REPOSITORY=amunger/agent-outpost|' \
