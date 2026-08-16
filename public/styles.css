@@ -33,6 +33,17 @@ textarea {
   gap: 1rem;
 }
 
+.chat-list,
+.chat-view {
+  min-height: 100vh;
+}
+
+.chat-view {
+  display: grid;
+  grid-template-rows: auto minmax(16rem, 1fr) auto;
+  gap: 1rem;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -71,6 +82,56 @@ h1 {
 .state[data-state="failed"] {
   border-color: #b91c1c;
   color: #fecaca;
+}
+
+.back-button {
+  min-width: auto;
+  color: #cbd5e1;
+  background: transparent;
+}
+
+.chat-heading {
+  flex: 1;
+  margin-left: 0.5rem;
+}
+
+.chat-heading .eyebrow {
+  margin-bottom: 0;
+}
+
+.chat-entries {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.chat-entry {
+  display: grid;
+  justify-items: start;
+  width: 100%;
+  min-height: 0;
+  padding: 1rem;
+  border: 1px solid #1e293b;
+  border-radius: 0.8rem;
+  color: #f8fafc;
+  background: #111827;
+  text-align: left;
+}
+
+.chat-entry:hover,
+.chat-entry:focus-visible {
+  border-color: #2dd4bf;
+}
+
+.chat-entry strong {
+  font-size: 1rem;
+}
+
+.chat-entry span,
+.chat-entry small {
+  margin-top: 0.3rem;
+  color: #94a3b8;
+  overflow-wrap: anywhere;
 }
 
 .resources {

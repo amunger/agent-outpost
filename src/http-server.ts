@@ -1,7 +1,7 @@
 import { closeSync, constants, createReadStream, fstatSync, openSync } from "node:fs";
 import { access, realpath } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { extname, join, normalize, relative } from "node:path";
+import { basename, extname, join, normalize, relative } from "node:path";
 
 import type { AgentController } from "./agent.js";
 import type { OutpostConfig } from "./config.js";
@@ -216,6 +216,23 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
         !isSameOrigin(request, config)
       ) {
         sendJson(response, 403, { error: "Cross-origin mutation rejected" });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/chats") {
+        const events = eventStore.list();
+        const lastEvent = events.at(-1);
+        sendJson(response, 200, {
+          chats: [
+            {
+              id: config.sessionId,
+              name: "Mobile agent",
+              repository: config.allowedGitRemote ?? basename(config.workspace),
+              lastUsedAt: lastEvent?.createdAt ?? null,
+              state: agent.state,
+            },
+          ],
+        });
         return;
       }
 

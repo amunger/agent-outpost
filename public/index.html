@@ -10,25 +10,37 @@
   </head>
   <body>
     <main class="shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">Agent Outpost</p>
-          <h1>Mobile agent</h1>
-        </div>
-        <span id="state" class="state" data-state="starting">Starting</span>
-      </header>
-
-      <details class="resources">
-        <summary>Dev box status</summary>
+      <section id="chat-list" class="chat-list">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Agent Outpost</p>
+            <h1>Chats</h1>
+          </div>
+          <span class="state">Server</span>
+        </header>
+        <details class="resources" open>
+          <summary>Server diagnostics</summary>
         <div class="resource-grid" aria-live="polite">
           <div><span>CPU</span><strong id="cpu">--</strong></div>
           <div><span>Memory</span><strong id="memory">--</strong></div>
           <div><span>Disk</span><strong id="disk">--</strong></div>
           <div><span>Load</span><strong id="load">--</strong></div>
         </div>
-      </details>
+        </details>
+        <section id="chat-entries" class="chat-entries" aria-label="Chats"></section>
+      </section>
 
-      <section id="timeline" class="timeline" aria-label="Conversation" aria-live="polite"></section>
+      <section id="chat-view" class="chat-view" hidden>
+        <header class="topbar">
+          <button id="back-to-chats" class="back-button" type="button">← Chats</button>
+          <div class="chat-heading">
+            <p class="eyebrow">Active chat</p>
+            <h1>Mobile agent</h1>
+          </div>
+          <span id="state" class="state" data-state="starting">Starting</span>
+        </header>
+
+        <section id="timeline" class="timeline" aria-label="Conversation" aria-live="polite"></section>
 
       <form id="composer" class="composer">
         <div class="input-row">
@@ -44,6 +56,7 @@
         </div>
         <p id="error" class="error" role="alert"></p>
       </form>
+      </section>
     </main>
   </body>
 </html>

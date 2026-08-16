@@ -1,3 +1,7 @@
+const chatList = document.querySelector("#chat-list");
+const chatView = document.querySelector("#chat-view");
+const chatEntries = document.querySelector("#chat-entries");
+const backToChats = document.querySelector("#back-to-chats");
 const stateElement = document.querySelector("#state");
 const timeline = document.querySelector("#timeline");
 const composer = document.querySelector("#composer");
@@ -15,6 +19,10 @@ function assertElement(element, selector) {
   return element;
 }
 
+assertElement(chatList, "#chat-list");
+assertElement(chatView, "#chat-view");
+assertElement(chatEntries, "#chat-entries");
+assertElement(backToChats, "#back-to-chats");
 assertElement(stateElement, "#state");
 assertElement(timeline, "#timeline");
 assertElement(composer, "#composer");
@@ -162,6 +170,58 @@ async function request(path, options) {
   return body;
 }
 
+let eventSource;
+
+function formatLastUsed(value) {
+  if (!value) {
+    return "Never used";
+  }
+  return new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function renderChatEntry(chat) {
+  const button = document.createElement("button");
+  button.className = "chat-entry";
+  button.type = "button";
+  const title = document.createElement("strong");
+  title.textContent = chat.name;
+  const repository = document.createElement("span");
+  repository.textContent = chat.repository;
+  const lastUsed = document.createElement("small");
+  lastUsed.textContent = `Last used ${formatLastUsed(chat.lastUsedAt)}`;
+  button.append(title, repository, lastUsed);
+  button.addEventListener("click", () => void openChat(chat.id));
+  return button;
+}
+
+async function loadChats() {
+  const response = await request("/api/chats");
+  chatEntries.replaceChildren(...response.chats.map(renderChatEntry));
+}
+
+function closeEvents() {
+  eventSource?.close();
+  eventSource = undefined;
+}
+
+function showChatView() {
+  chatList.hidden = true;
+  chatView.hidden = false;
+}
+
+function showChatList() {
+  closeEvents();
+  chatView.hidden = true;
+  chatList.hidden = false;
+  void loadChats();
+}
+
+async function openChat() {
+  showChatView();
+  const snapshot = await loadSession();
+  connectEvents(snapshot.events.at(-1)?.id || 0);
+}
+
 async function loadSession() {
   const snapshot = await request("/api/session");
   timeline.replaceChildren();
@@ -171,7 +231,9 @@ async function loadSession() {
 }
 
 function connectEvents(after) {
-  const source = new EventSource(`/api/session/events?after=${after}`);
+  closeEvents();
+  eventSource = new EventSource(`/api/session/events?after=${after}`);
+  const source = eventSource;
   const types = [
     "user.message",
     "assistant.message",
@@ -232,7 +294,7 @@ cancelButton.addEventListener("click", async () => {
   }
 });
 
-const initialSnapshot = await loadSession();
-connectEvents(initialSnapshot.events.at(-1)?.id || 0);
-await loadResources();
+backToChats.addEventListener("click", showChatList);
+await loadChats();
+loadResources();
 setInterval(() => void loadResources(), 10_000);
