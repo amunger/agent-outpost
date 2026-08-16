@@ -6,6 +6,7 @@ const sendButton = document.querySelector("#send");
 const cancelButton = document.querySelector("#cancel");
 const errorElement = document.querySelector("#error");
 let streamingMessage;
+let autoScrollTimeline = true;
 
 function assertElement(element, selector) {
   if (!element) {
@@ -22,14 +23,28 @@ assertElement(sendButton, "#send");
 assertElement(cancelButton, "#cancel");
 assertElement(errorElement, "#error");
 
+function scrollTimelineToBottom() {
+  timeline.scrollTop = timeline.scrollHeight;
+}
+
+timeline.addEventListener("scroll", () => {
+  const distanceFromBottom = timeline.scrollHeight - timeline.clientHeight - timeline.scrollTop;
+  autoScrollTimeline = distanceFromBottom <= 32;
+});
+
 function setState(state) {
   stateElement.textContent = state[0].toUpperCase() + state.slice(1);
   stateElement.dataset.state = state;
   sendButton.disabled = state === "running" || state === "cancelling" || state === "starting";
   cancelButton.disabled = state !== "running";
+  cancelButton.hidden = state !== "running";
 }
 
 function appendMessage(role, content, createdAt) {
+  if (role !== "user" && !content.trim()) {
+    return;
+  }
+
   const article = document.createElement("article");
   article.className = "message";
   article.dataset.role = role;
@@ -39,7 +54,9 @@ function appendMessage(role, content, createdAt) {
   text.textContent = content;
   article.append(metadata, text);
   timeline.append(article);
-  timeline.scrollTop = timeline.scrollHeight;
+  if (autoScrollTimeline) {
+    scrollTimelineToBottom();
+  }
   return text;
 }
 
@@ -61,7 +78,9 @@ function handleEvent(event) {
         streamingMessage = appendMessage("assistant", "", event.createdAt);
       }
       streamingMessage.textContent += event.payload.content;
-      timeline.scrollTop = timeline.scrollHeight;
+      if (autoScrollTimeline) {
+        scrollTimelineToBottom();
+      }
       break;
     case "session.state":
       setState(event.payload.state);
@@ -130,6 +149,8 @@ async function loadResources() {
 composer.addEventListener("submit", async (event) => {
   event.preventDefault();
   errorElement.textContent = "";
+  autoScrollTimeline = true;
+  scrollTimelineToBottom();
   try {
     await request("/api/session/messages", {
       method: "POST",

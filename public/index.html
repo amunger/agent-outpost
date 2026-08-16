@@ -31,11 +31,16 @@
       <section id="timeline" class="timeline" aria-label="Conversation" aria-live="polite"></section>
 
       <form id="composer" class="composer">
-        <label for="message">Message the agent</label>
-        <textarea id="message" name="message" rows="3" maxlength="20000" required></textarea>
-        <div class="actions">
-          <button id="cancel" class="secondary" type="button">Stop</button>
-          <button id="send" type="submit">Send</button>
+        <div class="input-row">
+          <textarea id="message" name="message" rows="2" maxlength="20000" aria-label="Message the agent" required></textarea>
+          <div class="actions">
+            <button id="cancel" class="secondary" type="button" hidden>Stop</button>
+            <button id="send" type="submit" aria-label="Send message" title="Send message">
+              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                <path d="m3 3 18 9-18 9 3.5-9L3 3Zm3.5 9h9" />
+              </svg>
+            </button>
+          </div>
         </div>
         <p id="error" class="error" role="alert"></p>
       </form>
