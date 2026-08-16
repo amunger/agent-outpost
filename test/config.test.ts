@@ -11,6 +11,7 @@ test("loadConfig applies safe local defaults", () => {
   assert.equal(config.sessionId, "agent-outpost-main");
   assert.equal(config.allowedTailscaleUser, undefined);
   assert.equal(config.production, false);
+  assert.match(config.deploymentRequestDirectory, /data[\\/]deploy-requests$/);
 });
 
 test("loadConfig requires a Tailscale identity in production", () => {

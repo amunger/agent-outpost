@@ -131,7 +131,20 @@ systemctl status agent-outpost.service --no-pager
 Open the Tailscale HTTPS URL on the phone. Confirm conversation, cancellation,
 session resume, and resource status.
 
-## 8. Remove bootstrap public access
+## 8. Enable autonomous blue-green deployment
+
+After the initial release is healthy, perform the one-time privileged migration:
+
+```bash
+sudo bash /srv/agent-outpost/workspace/ops/bootstrap-self-deploy.sh
+systemctl status agent-outpost@a.service agent-outpost-deploy.path nginx --no-pager
+```
+
+This installs the root-owned deployment controller, slots, systemd path watcher,
+and nginx loopback proxy. Future deployments are requested through the typed
+`deploy_agent_outpost` SDK tool and do not grant the agent general root access.
+
+## 9. Remove bootstrap public access
 
 Only after Tailscale SSH and the mobile site both work:
 

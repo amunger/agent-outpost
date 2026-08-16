@@ -1,0 +1,13 @@
+[Unit]
+Description=Start the active Agent Outpost slot
+After=network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
+Before=nginx.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/agent-outpost-start-active
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target

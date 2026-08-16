@@ -8,6 +8,7 @@ export interface OutpostConfig {
   readonly publicDirectory: string;
   readonly allowedTailscaleUser?: string;
   readonly allowedGitRemote?: string;
+  readonly deploymentRequestDirectory: string;
   readonly sessionId: string;
   readonly model: string;
   readonly production: boolean;
@@ -45,6 +46,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Outpos
     publicDirectory: requiredPath(environment.OUTPOST_PUBLIC_DIR, "./public"),
     ...(allowedTailscaleUser ? { allowedTailscaleUser } : {}),
     ...(allowedGitRemote ? { allowedGitRemote } : {}),
+    deploymentRequestDirectory: requiredPath(
+      environment.OUTPOST_DEPLOY_REQUEST_DIR,
+      "./data/deploy-requests",
+    ),
     sessionId: environment.OUTPOST_SESSION_ID?.trim() || "agent-outpost-main",
     model: environment.OUTPOST_MODEL?.trim() || "auto",
     production,

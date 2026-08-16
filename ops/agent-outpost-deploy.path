@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for Agent Outpost deployment requests
+
+[Path]
+PathChanged=/var/lib/agent-outpost/deploy-requests/pending
+Unit=agent-outpost-deploy.service
+
+[Install]
+WantedBy=multi-user.target

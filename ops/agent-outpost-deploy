@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly workspace=/srv/agent-outpost/workspace
+readonly request_directory=/var/lib/agent-outpost/deploy-requests
+readonly pending_request="${request_directory}/pending"
+readonly deployment_directory=/var/lib/agent-outpost/deployment
+readonly processing_request="${deployment_directory}/processing"
+readonly active_state_file="${deployment_directory}/active"
+readonly expected_remote=https://github.com/amunger/agent-outpost.git
+
+exec 9>/run/lock/agent-outpost-deploy.lock
+flock -n 9 || exit 0
+
+atomic_write_state() {
+  local slot=$1
+  local commit=$2
+  printf '%s %s\n' "${slot}" "${commit}" > "${active_state_file}.next"
+  mv -Tf "${active_state_file}.next" "${active_state_file}"
+}
+
+# A restarted controller or reboot always reconciles services and nginx from
+# the single authoritative state record before considering a new request.
+/usr/local/sbin/agent-outpost-start-active
+if systemctl is-active --quiet nginx; then
+  systemctl reload nginx
+fi
+
+if [[ ! -e "${pending_request}" && ! -L "${pending_request}" ]]; then
+  exit 0
+fi
+
+rm -rf --one-file-system -- "${processing_request}"
+if [[ ! -f "${pending_request}" || -L "${pending_request}" ]]; then
+  rm -rf --one-file-system -- "${pending_request}"
+  echo "Deployment request must begin as a regular, non-symlink file." >&2
+  exit 1
+fi
+mv -T "${pending_request}" "${processing_request}"
+if [[ ! -f "${processing_request}" || -L "${processing_request}" ]]; then
+  rm -rf --one-file-system -- "${processing_request}"
+  echo "Deployment request must be a regular, non-symlink file." >&2
+  exit 1
+fi
+if [[ $(stat -c %s "${processing_request}") -gt 64 ]]; then
+  rm -f -- "${processing_request}"
+  echo "Deployment request exceeds the maximum size." >&2
+  exit 1
+fi
+if [[ $(stat -c %U "${processing_request}") != agent-outpost ]]; then
+  rm -f "${processing_request}"
+  echo "Deployment request has an unexpected owner." >&2
+  exit 1
+fi
+commit_sha=$(tr -d '\r\n' < "${processing_request}")
+rm -f "${processing_request}"
+
+if [[ ! "${commit_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Invalid deployment commit SHA." >&2
+  exit 1
+fi
+
+read -r current_slot current_commit < "${active_state_file}"
+case "${current_slot}" in
+  a) candidate_slot=b ;;
+  b) candidate_slot=a ;;
+  *) echo "Invalid active slot: ${current_slot}" >&2; exit 1 ;;
+esac
+if [[ ! "${current_commit}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Invalid active commit: ${current_commit}" >&2
+  exit 1
+fi
+
+run_agent() {
+  runuser -u agent-outpost -- "$@"
+}
+
+remote=$(run_agent git -C "${workspace}" remote get-url --push origin)
+if [[ "${remote}" != "${expected_remote}" ]]; then
+  echo "Refusing deployment because origin does not match ${expected_remote}." >&2
+  exit 1
+fi
+
+run_agent git -C "${workspace}" fetch --prune origin agent/current
+remote_sha=$(run_agent git -C "${workspace}" rev-parse origin/agent/current)
+if [[ "${commit_sha}" != "${remote_sha}" ]]; then
+  echo "Requested commit is not the current origin/agent/current revision." >&2
+  exit 1
+fi
+
+build_directory="/var/lib/agent-outpost/builds/${commit_sha}"
+release_directory="/opt/agent-outpost/releases/${commit_sha}"
+run_agent git -C "${workspace}" worktree remove --force "${build_directory}" 2>/dev/null || true
+rm -rf "${build_directory}"
+run_agent git -C "${workspace}" worktree add --detach "${build_directory}" "${commit_sha}"
+
+cleanup() {
+  run_agent git -C "${workspace}" worktree remove --force "${build_directory}" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+run_agent npm --prefix "${build_directory}" ci
+run_agent npm --prefix "${build_directory}" run typecheck
+run_agent npm --prefix "${build_directory}" test
+run_agent npm --prefix "${build_directory}" run build
+
+if [[ ! -d "${release_directory}" ]]; then
+  partial_release="${release_directory}.partial-$$"
+  rm -rf "${partial_release}"
+  install -d -o agent-outpost -g agent-outpost -m 0755 "${partial_release}"
+  run_agent rsync -a --delete \
+    --exclude node_modules \
+    --exclude .git \
+    "${build_directory}/" "${partial_release}/"
+  run_agent npm --prefix "${partial_release}" ci --omit=dev
+  printf '%s\n' "${commit_sha}" > "${partial_release}/.agent-outpost-commit"
+  chown -R root:root "${partial_release}"
+  find "${partial_release}" -type d -exec chmod 0755 {} +
+  find "${partial_release}" -type f -exec chmod 0644 {} +
+  touch "${partial_release}/.complete"
+  mv -T "${partial_release}" "${release_directory}"
+elif [[ ! -f "${release_directory}/.complete" ]]; then
+  echo "Existing release ${release_directory} is incomplete." >&2
+  exit 1
+fi
+
+ln -sfn "${release_directory}" "/opt/agent-outpost/slots/${candidate_slot}/current.next"
+mv -Tf \
+  "/opt/agent-outpost/slots/${candidate_slot}/current.next" \
+  "/opt/agent-outpost/slots/${candidate_slot}/current"
+
+current_port=3001
+if [[ "${current_slot}" == b ]]; then
+  current_port=3002
+fi
+
+wait_idle() {
+  local port=$1
+  for _ in {1..900}; do
+    if curl --fail --silent "http://127.0.0.1:${port}/ready" | grep -q '"state":"idle"'; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+rollback() {
+  local reason=$1
+  trap - ERR
+  set +e
+  echo "${reason}; rolling back to slot ${current_slot}." >&2
+  atomic_write_state "${current_slot}" "${current_commit}"
+  systemctl stop "agent-outpost@${candidate_slot}.service"
+  /usr/local/sbin/agent-outpost-start-active
+  systemctl reload nginx
+  exit 1
+}
+
+if ! wait_idle "${current_port}"; then
+  echo "Active Agent Outpost turn did not drain before the deployment timeout." >&2
+  exit 1
+fi
+
+# Persist the candidate selection before cutover. If the controller is killed,
+# systemd restarts it and the reconciliation above completes this selection.
+atomic_write_state "${candidate_slot}" "${commit_sha}"
+trap 'rollback "Cutover failed at line ${LINENO}"' ERR
+
+systemctl stop "agent-outpost@${candidate_slot}.service" || true
+systemctl stop "agent-outpost@${current_slot}.service"
+/usr/local/sbin/agent-outpost-start-active
+systemctl reload nginx
+trap - ERR
+echo "Activated Agent Outpost ${commit_sha} in slot ${candidate_slot}."

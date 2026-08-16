@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly active_slot_file=/var/lib/agent-outpost/deployment/active
+readonly nginx_config=/etc/nginx/sites-enabled/agent-outpost
+read -r active_slot active_commit < "${active_slot_file}"
+
+case "${active_slot}" in
+  a) active_port=3001; inactive_slot=b ;;
+  b) active_port=3002; inactive_slot=a ;;
+  *) echo "Invalid active Agent Outpost slot: ${active_slot}" >&2; exit 1 ;;
+esac
+if [[ ! "${active_commit}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Invalid active Agent Outpost commit: ${active_commit}" >&2
+  exit 1
+fi
+
+cat > "${nginx_config}.next" <<EOF
+server {
+    listen 127.0.0.1:3000;
+    server_name _;
+    location / {
+        proxy_pass http://127.0.0.1:${active_port};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Tailscale-User-Login \$http_tailscale_user_login;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+}
+EOF
+mv -Tf "${nginx_config}.next" "${nginx_config}"
+nginx -t -c /etc/nginx/nginx.conf
+
+systemctl stop "agent-outpost@${inactive_slot}.service" || true
+systemctl start "agent-outpost@${active_slot}.service"
+for _ in {1..90}; do
+  if curl --fail --silent "http://127.0.0.1:${active_port}/ready" >/dev/null; then
+    exit 0
+  fi
+  sleep 1
+done
+
+echo "Active Agent Outpost slot ${active_slot} failed readiness." >&2
+exit 1

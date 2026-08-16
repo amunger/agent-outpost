@@ -1,0 +1,12 @@
+[Unit]
+Description=Deploy a requested Agent Outpost revision
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/agent-outpost-deploy
+Restart=on-failure
+RestartSec=5
+PrivateTmp=true
+UMask=0027

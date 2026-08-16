@@ -1,0 +1,29 @@
+[Unit]
+Description=Agent Outpost application slot %i
+After=network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
+
+[Service]
+Type=simple
+User=agent-outpost
+Group=agent-outpost
+WorkingDirectory=/opt/agent-outpost/slots/%i/current
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/agent-outpost/agent-outpost.env
+EnvironmentFile=/etc/agent-outpost/slot-%i.env
+ExecStart=/usr/bin/node --enable-source-maps dist/src/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/agent-outpost /srv/agent-outpost/workspace
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

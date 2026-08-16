@@ -19,6 +19,7 @@ const agent = new CopilotAgent({
   sessionId: config.sessionId,
   model: config.model,
   ...(config.allowedGitRemote ? { allowedGitRemote: config.allowedGitRemote } : {}),
+  deploymentRequestDirectory: config.deploymentRequestDirectory,
   eventStore,
   eventHub,
 });

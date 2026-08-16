@@ -12,6 +12,7 @@ The first milestone provides:
 - Message cancellation.
 - Local conversation history.
 - Local CPU, memory, and disk status.
+- Validated blue-green self-deployment from `agent/current`.
 - Private access through Tailscale.
 
 ## Architecture
@@ -55,6 +56,11 @@ application publicly.
 See the [bootstrap runbook](docs/bootstrap.md) for the intended deployment
 sequence. Infrastructure is defined in [Bicep](infra/main.bicep); the deployment
 script runs an Azure what-if unless `-Apply` is explicitly supplied.
+
+Autonomous deployment requires the runbook's one-time
+`bootstrap-self-deploy.sh` migration after the first healthy release. The
+ordinary release installer deliberately does not grant or install privileged
+deployment components.
 
 ## Security model
 
