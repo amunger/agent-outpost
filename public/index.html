@@ -66,7 +66,18 @@
           </div>
         </div>
         <p id="error" class="error" role="alert"></p>
+        <button id="model-button" class="model-button" type="button" aria-haspopup="dialog">auto</button>
       </form>
+      <dialog id="model-dialog" class="model-dialog">
+        <form method="dialog">
+          <h2>Model</h2>
+          <label for="model-select">Model ID</label>
+          <select id="model-select"></select>
+          <p>Thinking level: <strong>medium</strong></p>
+          <button value="cancel" class="secondary">Close</button>
+          <button id="save-model" value="default" type="submit">Use model</button>
+        </form>
+      </dialog>
       </section>
     </main>
   </body>

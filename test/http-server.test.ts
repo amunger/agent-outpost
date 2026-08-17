@@ -15,7 +15,12 @@ import { SseHub } from "../src/sse-hub.js";
 
 class FakeAgent implements AgentController {
   public state: AgentState = "idle";
+  public model = "auto";
   public readonly messages: string[] = [];
+
+  public setModel(model: string): void {
+    this.model = model;
+  }
 
   public async start(): Promise<void> {}
 

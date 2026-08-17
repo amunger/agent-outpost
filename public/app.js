@@ -13,6 +13,10 @@ const messageInput = document.querySelector("#message");
 const sendButton = document.querySelector("#send");
 const cancelButton = document.querySelector("#cancel");
 const errorElement = document.querySelector("#error");
+const modelButton = document.querySelector("#model-button");
+const modelDialog = document.querySelector("#model-dialog");
+const modelSelect = document.querySelector("#model-select");
+const saveModelButton = document.querySelector("#save-model");
 let streamingMessage;
 let autoScrollTimeline = true;
 
@@ -38,6 +42,10 @@ assertElement(messageInput, "#message");
 assertElement(sendButton, "#send");
 assertElement(cancelButton, "#cancel");
 assertElement(errorElement, "#error");
+assertElement(modelButton, "#model-button");
+assertElement(modelDialog, "#model-dialog");
+assertElement(modelSelect, "#model-select");
+assertElement(saveModelButton, "#save-model");
 
 function scrollTimelineToBottom(behavior = "auto") {
   timeline.scrollTo({ top: timeline.scrollHeight, behavior });
@@ -358,6 +366,29 @@ function connectEvents(after) {
   };
 }
 
+async function loadModel() {
+  const response = await request("/api/model");
+  modelButton.textContent = response.model;
+  modelSelect.replaceChildren(...response.models.map((model) => new Option(model, model)));
+  modelSelect.value = response.model;
+}
+
+modelButton.addEventListener("click", () => modelDialog.showModal());
+saveModelButton.addEventListener("click", async (event) => {
+  event.preventDefault();
+  try {
+    const response = await request("/api/model", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelSelect.value }),
+    });
+    modelButton.textContent = response.model;
+    modelDialog.close();
+  } catch (error) {
+    errorElement.textContent = error instanceof Error ? error.message : String(error);
+  }
+});
+
 async function loadResources() {
   try {
     const resources = await request("/api/status/resources");
@@ -423,4 +454,7 @@ void loadRepositories().catch((error) => {
   errorElement.textContent = error instanceof Error ? error.message : String(error);
 });
 loadResources();
+void loadModel().catch((error) => {
+  errorElement.textContent = error instanceof Error ? error.message : String(error);
+});
 setInterval(() => void loadResources(), 10_000);

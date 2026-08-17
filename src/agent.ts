@@ -13,6 +13,8 @@ import { SseHub } from "./sse-hub.js";
 
 export interface AgentController {
   readonly state: AgentState;
+  readonly model: string;
+  setModel(model: string): void;
   start(): Promise<void>;
   send(content: string): Promise<void>;
   cancel(): Promise<void>;
@@ -41,7 +43,7 @@ export class CopilotAgent implements AgentController {
   readonly #client = new CopilotClient();
   readonly #workspace: string;
   readonly #sessionId: string;
-  readonly #model: string;
+  #model: string;
   readonly #allowedGitRemote: string | undefined;
   readonly #deploymentRequestDirectory: string;
   readonly #githubRepository: string | undefined;
@@ -71,6 +73,14 @@ export class CopilotAgent implements AgentController {
 
   public get state(): AgentState {
     return this.#state;
+  }
+
+  public get model(): string {
+    return this.#model;
+  }
+
+  public setModel(model: string): void {
+    this.#model = model;
   }
 
   public async start(): Promise<void> {
@@ -109,6 +119,8 @@ export class CopilotAgent implements AgentController {
       const commonConfig = {
         clientName: "agent-outpost",
         workingDirectory: this.#workspace,
+        model: this.#model,
+        reasoningEffort: "medium" as const,
         streaming: true,
         enableExperimentalMode: true,
         enableConfigDiscovery: true,

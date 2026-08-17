@@ -29,6 +29,10 @@ interface ChatCreateBody {
   readonly repository: string;
 }
 
+interface ModelBody {
+  readonly model: string;
+}
+
 interface ChatRecord {
   readonly id: string;
   readonly projectId: string;
@@ -42,6 +46,17 @@ interface ChatRecord {
 function repositoryLabel(value: string): string {
   const match = value.match(/github\.com[/:]([^/]+\/[^/.]+)(?:\.git)?$/i);
   return match?.[1] ?? value;
+}
+
+function parseModelBody(value: unknown): ModelBody {
+  if (typeof value !== "object" || value === null || !("model" in value) || typeof value.model !== "string") {
+    throw new Error("Request body must contain a string model field");
+  }
+  const model = value.model.trim();
+  if (!/^[A-Za-z0-9._-]+$/.test(model) || model.length > 100) {
+    throw new Error("Model ID is invalid");
+  }
+  return { model };
 }
 
 function parseChatCreateBody(value: unknown): ChatCreateBody {
@@ -392,6 +407,24 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
         !isSameOrigin(request, config)
       ) {
         sendJson(response, 403, { error: "Cross-origin mutation rejected" });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/model") {
+        sendJson(response, 200, {
+          model: agent.model,
+          models: [agent.model, "gpt-5", "claude-sonnet-4.5", "gemini-2.5-pro"].filter(
+            (model, index, models) => models.indexOf(model) === index,
+          ),
+          reasoningEffort: "medium",
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/model") {
+        const body = parseModelBody(await readJsonBody(request));
+        agent.setModel(body.model);
+        sendJson(response, 200, { model: agent.model, reasoningEffort: "medium" });
         return;
       }
 

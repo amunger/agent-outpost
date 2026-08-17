@@ -417,6 +417,43 @@ button:disabled {
   opacity: 0.5;
 }
 
+.model-button {
+  justify-self: start;
+  min-width: auto;
+  min-height: 1.2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: #5eead4;
+  background: transparent;
+  text-decoration: underline;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.model-dialog {
+  width: min(90vw, 24rem);
+  padding: 1rem;
+  border: 1px solid #334155;
+  border-radius: 0.8rem;
+  color: #f8fafc;
+  background: #0f172a;
+}
+
+.model-dialog form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.model-dialog h2 {
+  margin: 0;
+}
+
+.model-dialog p {
+  margin: 0;
+  color: #cbd5e1;
+}
+
 .error {
   min-height: 1.2em;
   margin: 0;
