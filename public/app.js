@@ -303,16 +303,19 @@ function renderChatEntry(chat) {
   rename.addEventListener("click", () => {
     renameForm.hidden = false;
     button.hidden = true;
+    controls.hidden = true;
     renameInput.focus();
     renameInput.select();
   });
   cancelRename.addEventListener("click", () => {
     renameForm.hidden = true;
     button.hidden = false;
+    controls.hidden = false;
   });
   renameForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     errorElement.textContent = "";
+    controls.hidden = false;
     try {
       await request(`/api/chats/${encodeURIComponent(chat.id)}`, {
         method: "PATCH",
