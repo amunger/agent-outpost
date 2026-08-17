@@ -153,6 +153,7 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
     assert.match(chat.projectId, /^github-[0-9a-f]{16}$/);
     assert.equal(eventStore.listChats().some(({ id }) => id === chat.id), true);
 
+    eventStore.append({ kind: "user.message", payload: { content: "primary chat message" } });
     const selectedChat = await fetch(`${baseUrl}/api/chats/${encodeURIComponent(chat.id)}/select`, {
       method: "POST",
       headers: {
@@ -161,6 +162,11 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
       },
     });
     assert.equal(selectedChat.status, 200);
+    const newChatSession = await fetch(`${baseUrl}/api/session`, {
+      headers: { "Tailscale-User-Login": "owner@example.com" },
+    });
+    const newChatSessionBody = (await newChatSession.json()) as { events: unknown[] };
+    assert.deepEqual(newChatSessionBody.events, []);
 
     const statistics = await fetch(
       `${baseUrl}/api/chats/${encodeURIComponent(chat.id)}/statistics`,

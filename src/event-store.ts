@@ -11,6 +11,7 @@ import type {
 
 interface EventRow {
   readonly id: number;
+  readonly chat_id: string | null;
   readonly kind: string;
   readonly created_at: string;
   readonly payload: string;
@@ -133,6 +134,7 @@ function parseRow(row: EventRow): OutpostEvent {
 
 export class EventStore implements Disposable {
   readonly #database: DatabaseSync;
+  #activeChatId: string | null = null;
 
   public constructor(dataDirectory: string) {
     mkdirSync(dataDirectory, { recursive: true, mode: 0o700 });
@@ -142,6 +144,7 @@ export class EventStore implements Disposable {
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id TEXT,
         kind TEXT NOT NULL,
         created_at TEXT NOT NULL,
         payload TEXT NOT NULL
@@ -157,6 +160,18 @@ export class EventStore implements Disposable {
       CREATE INDEX IF NOT EXISTS chats_last_used_at
         ON chats(last_used_at DESC);
     `);
+    const eventColumns = this.#database.prepare("PRAGMA table_info(events)").all() as unknown as Array<{ name: string }>;
+    if (!eventColumns.some(({ name }) => name === "chat_id")) {
+      this.#database.exec("ALTER TABLE events ADD COLUMN chat_id TEXT");
+    }
+  }
+
+  public setActiveChat(id: string): void {
+    this.#activeChatId = id;
+  }
+
+  public adoptLegacyEvents(id: string): void {
+    this.#database.prepare("UPDATE events SET chat_id = ? WHERE chat_id IS NULL").run(id);
   }
 
   public ensureChat(
@@ -258,8 +273,8 @@ export class EventStore implements Disposable {
   ): OutpostEvent<K> {
     const createdAt = new Date().toISOString();
     const result = this.#database
-      .prepare("INSERT INTO events (kind, created_at, payload) VALUES (?, ?, ?)")
-      .run(input.kind, createdAt, JSON.stringify(input.payload));
+      .prepare("INSERT INTO events (chat_id, kind, created_at, payload) VALUES (?, ?, ?, ?)")
+      .run(this.#activeChatId, input.kind, createdAt, JSON.stringify(input.payload));
 
     if (typeof result.lastInsertRowid !== "number") {
       throw new Error("SQLite did not return a numeric event identifier");
@@ -273,14 +288,17 @@ export class EventStore implements Disposable {
     };
   }
 
-  public list(options: { readonly after?: number; readonly limit?: number } = {}): OutpostEvent[] {
+  public list(options: { readonly after?: number; readonly limit?: number; readonly chatId?: string } = {}): OutpostEvent[] {
     const after = options.after ?? 0;
     const limit = Math.min(Math.max(options.limit ?? 500, 1), 2_000);
+    const chatId = options.chatId ?? this.#activeChatId;
     const rows = this.#database
       .prepare(
-        "SELECT id, kind, created_at, payload FROM events WHERE id > ? ORDER BY id ASC LIMIT ?",
+        `SELECT id, chat_id, kind, created_at, payload FROM events
+         WHERE id > ? AND (chat_id = ? OR (chat_id IS NULL AND ? IS NULL))
+         ORDER BY id ASC LIMIT ?`,
       )
-      .all(after, limit) as unknown as EventRow[];
+      .all(after, chatId, chatId, limit) as unknown as EventRow[];
     return rows.map(parseRow);
   }
 

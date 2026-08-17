@@ -350,6 +350,8 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
   const owner = repositoryOwner(config.githubRepository);
   const lastDeploymentAt = new Date().toISOString();
   const initialRepository = repositoryLabel(config.allowedGitRemote ?? basename(config.workspace));
+  eventStore.adoptLegacyEvents(config.sessionId);
+  eventStore.setActiveChat(config.sessionId);
   eventStore.ensureChat({
     id: config.sessionId,
     projectId: projectIdForRepository(initialRepository),
@@ -433,6 +435,7 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
           return;
         }
         selectedChatId = chat.id;
+        eventStore.setActiveChat(chat.id);
         sendJson(response, 200, { chat: chatRecord(chat) });
         return;
       }
