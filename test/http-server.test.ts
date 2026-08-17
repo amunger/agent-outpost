@@ -18,6 +18,10 @@ class FakeAgent implements AgentController {
   public model = "auto";
   public readonly messages: string[] = [];
 
+  public async listModels(): Promise<string[]> {
+    return ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "claude-sonnet-4.5"];
+  }
+
   public setModel(model: string): void {
     this.model = model;
   }
@@ -130,6 +134,18 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
       headers: { "Tailscale-User-Login": "owner@example.com" },
     });
     assert.equal(styles.headers.get("cache-control"), "no-cache");
+
+    const modelResponse = await fetch(`${baseUrl}/api/model`, {
+      headers: { "Tailscale-User-Login": "owner@example.com" },
+    });
+    assert.equal(modelResponse.status, 200);
+    const modelBody = (await modelResponse.json()) as {
+      model: string;
+      models: string[];
+      reasoningEffort: string;
+    };
+    assert.equal(modelBody.models.slice(0, 3).join(","), "gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna");
+    assert.equal(modelBody.reasoningEffort, "medium");
 
     const repositories = await fetch(`${baseUrl}/api/repositories`, {
       headers: { "Tailscale-User-Login": "owner@example.com" },

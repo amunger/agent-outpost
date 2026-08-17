@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { CopilotClient, type CopilotSession, type SessionEvent } from "@github/copilot-sdk";
+import { CopilotClient, type CopilotSession, type ModelInfo, type SessionEvent } from "@github/copilot-sdk";
 
 import type { AgentState, OutpostEvent } from "./domain.js";
 import { EventStore } from "./event-store.js";
@@ -14,6 +14,7 @@ import { SseHub } from "./sse-hub.js";
 export interface AgentController {
   readonly state: AgentState;
   readonly model: string;
+  listModels(): Promise<string[]>;
   setModel(model: string): void;
   start(): Promise<void>;
   send(content: string): Promise<void>;
@@ -37,6 +38,10 @@ export interface CopilotAgentOptions {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function modelId(model: ModelInfo): string | undefined {
+  return typeof model.id === "string" ? model.id : undefined;
 }
 
 export class CopilotAgent implements AgentController {
@@ -81,6 +86,11 @@ export class CopilotAgent implements AgentController {
 
   public setModel(model: string): void {
     this.#model = model;
+  }
+
+  public async listModels(): Promise<string[]> {
+    const models = await this.#client.listModels();
+    return models.map(modelId).filter((value): value is string => value !== undefined);
   }
 
   public async start(): Promise<void> {

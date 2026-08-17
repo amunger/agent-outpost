@@ -411,11 +411,13 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
       }
 
       if (request.method === "GET" && url.pathname === "/api/model") {
+        const preferred = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+        const available = await agent.listModels();
+        const preferredAvailable = preferred.filter((model) => available.includes(model));
+        const models = [...preferredAvailable, ...available.filter((model) => !preferredAvailable.includes(model))];
         sendJson(response, 200, {
           model: agent.model,
-          models: [agent.model, "gpt-5", "claude-sonnet-4.5", "gemini-2.5-pro"].filter(
-            (model, index, models) => models.indexOf(model) === index,
-          ),
+          models,
           reasoningEffort: "medium",
         });
         return;
