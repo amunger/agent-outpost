@@ -247,7 +247,7 @@ function renderChatEntry(chat) {
   const remove = document.createElement("button");
   remove.className = "chat-control chat-delete";
   remove.type = "button";
-  remove.innerHTML = '<span class="codicon codicon-trash" aria-hidden="true">⌫</span>';
+  remove.innerHTML = '<span class="codicon codicon-trash" aria-hidden="true">🗑</span>';
   remove.setAttribute("aria-label", `Delete ${chat.name}`);
   remove.title = "Delete chat";
   remove.addEventListener("click", async () => {
