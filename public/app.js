@@ -235,6 +235,13 @@ function renderChatEntry(chat) {
   const controls = document.createElement("div");
   controls.className = "chat-controls";
 
+  const rename = document.createElement("button");
+  rename.className = "chat-control";
+  rename.type = "button";
+  rename.innerHTML = '<span class="codicon codicon-edit" aria-hidden="true">✎</span>';
+  rename.setAttribute("aria-label", `Rename ${chat.name}`);
+  rename.title = "Rename chat";
+
   const info = document.createElement("button");
   info.className = "chat-control";
   info.type = "button";
@@ -275,8 +282,51 @@ function renderChatEntry(chat) {
   details.className = "chat-details";
   details.hidden = true;
 
-  controls.append(info, remove);
-  row.append(button, controls, details);
+  const renameForm = document.createElement("form");
+  renameForm.className = "chat-rename";
+  renameForm.hidden = true;
+  const renameInput = document.createElement("input");
+  renameInput.type = "text";
+  renameInput.value = chat.name;
+  renameInput.maxLength = 100;
+  renameInput.required = true;
+  renameInput.setAttribute("aria-label", `Name for ${chat.name}`);
+  const saveRename = document.createElement("button");
+  saveRename.type = "submit";
+  saveRename.textContent = "Save";
+  const cancelRename = document.createElement("button");
+  cancelRename.type = "button";
+  cancelRename.className = "secondary";
+  cancelRename.textContent = "Cancel";
+  renameForm.append(renameInput, saveRename, cancelRename);
+
+  rename.addEventListener("click", () => {
+    renameForm.hidden = false;
+    button.hidden = true;
+    renameInput.focus();
+    renameInput.select();
+  });
+  cancelRename.addEventListener("click", () => {
+    renameForm.hidden = true;
+    button.hidden = false;
+  });
+  renameForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    errorElement.textContent = "";
+    try {
+      await request(`/api/chats/${encodeURIComponent(chat.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: renameInput.value }),
+      });
+      await loadChats();
+    } catch (error) {
+      errorElement.textContent = error instanceof Error ? error.message : String(error);
+    }
+  });
+
+  controls.append(rename, info, remove);
+  row.append(button, controls, renameForm, details);
   return row;
 }
 

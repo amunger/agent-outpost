@@ -236,6 +236,13 @@ export class EventStore implements Disposable {
     return result.changes > 0;
   }
 
+  public renameChat(id: string, name: string): StoredChat | undefined {
+    const result = this.#database
+      .prepare("UPDATE chats SET name = ? WHERE id = ?")
+      .run(name, id);
+    return result.changes === 0 ? undefined : this.#getChat(id);
+  }
+
   public chatStatistics(): ChatStatistics {
     const rows = this.#database
       .prepare(

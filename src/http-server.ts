@@ -29,6 +29,10 @@ interface ChatCreateBody {
   readonly repository: string;
 }
 
+interface ChatRenameBody {
+  readonly name: string;
+}
+
 interface ModelBody {
   readonly model: string;
 }
@@ -73,6 +77,22 @@ function parseChatCreateBody(value: unknown): ChatCreateBody {
     throw new Error("Repository must use owner/name format");
   }
   return { repository };
+}
+
+function parseChatRenameBody(value: unknown): ChatRenameBody {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("name" in value) ||
+    typeof value.name !== "string"
+  ) {
+    throw new Error("Request body must contain a string name field");
+  }
+  const name = value.name.trim();
+  if (!name || name.length > 100) {
+    throw new Error("Chat name must be between 1 and 100 characters");
+  }
+  return { name };
 }
 
 function listOwnedRepositories(owner: string): string[] {
@@ -492,6 +512,17 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
       }
 
       const chatDeletion = url.pathname.match(/^\/api\/chats\/([^/]+)$/);
+      if (request.method === "PATCH" && chatDeletion) {
+        const id = decodeURIComponent(chatDeletion[1] ?? "");
+        const chat = eventStore.renameChat(id, parseChatRenameBody(await readJsonBody(request)).name);
+        if (!chat) {
+          sendJson(response, 404, { error: "Chat not found" });
+          return;
+        }
+        sendJson(response, 200, { chat: chatRecord(chat) });
+        return;
+      }
+
       if (request.method === "DELETE" && chatDeletion) {
         const id = decodeURIComponent(chatDeletion[1] ?? "");
         if (id === config.sessionId) {

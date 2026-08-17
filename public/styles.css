@@ -212,6 +212,30 @@ select {
   white-space: pre-wrap;
 }
 
+.chat-rename {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.4rem;
+  padding: 0.6rem;
+  border: 1px solid #334155;
+  border-radius: 0.55rem;
+  background: #020617;
+}
+
+.chat-rename input {
+  min-width: 0;
+  padding: 0.55rem;
+  border: 1px solid #475569;
+  border-radius: 0.45rem;
+  color: #f8fafc;
+  background: #0f172a;
+}
+
+.chat-rename button {
+  min-height: 2.25rem;
+  padding: 0.45rem 0.65rem;
+}
+
 .chat-entry {
   display: grid;
   justify-items: start;
