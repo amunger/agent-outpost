@@ -230,8 +230,9 @@ function renderChatEntry(chat) {
   const info = document.createElement("button");
   info.className = "chat-control";
   info.type = "button";
-  info.textContent = "Info";
+  info.innerHTML = '<span class="codicon codicon-info" aria-hidden="true">ⓘ</span>';
   info.setAttribute("aria-label", `Show details for ${chat.name}`);
+  info.title = "Show chat details";
   info.addEventListener("click", async () => {
     errorElement.textContent = "";
     try {
@@ -246,8 +247,9 @@ function renderChatEntry(chat) {
   const remove = document.createElement("button");
   remove.className = "chat-control chat-delete";
   remove.type = "button";
-  remove.textContent = "Delete";
+  remove.innerHTML = '<span class="codicon codicon-trash" aria-hidden="true">⌫</span>';
   remove.setAttribute("aria-label", `Delete ${chat.name}`);
+  remove.title = "Delete chat";
   remove.addEventListener("click", async () => {
     errorElement.textContent = "";
     if (!confirm(`Delete the chat for ${chat.repository}? This cannot be undone.`)) {
