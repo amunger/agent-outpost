@@ -54,6 +54,7 @@
         <button id="scroll-to-bottom" class="scroll-to-bottom" type="button" aria-label="Scroll to latest message" title="Scroll to latest message" hidden>↓</button>
 
       <form id="composer" class="composer">
+        <p id="error" class="error" role="alert" aria-live="polite"></p>
         <div class="input-row">
           <textarea id="message" name="message" rows="2" maxlength="20000" aria-label="Message the agent" required></textarea>
           <div class="actions">
@@ -65,7 +66,6 @@
             </button>
           </div>
         </div>
-        <p id="error" class="error" role="alert"></p>
         <button id="model-button" class="model-button" type="button" aria-haspopup="dialog">auto</button>
       </form>
       <dialog id="model-dialog" class="model-dialog">

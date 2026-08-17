@@ -455,10 +455,10 @@ button:disabled {
 }
 
 .error {
-  min-height: 1.2em;
   margin: 0;
   color: #fca5a5;
   font-size: 0.85rem;
+  line-height: 1.2;
 }
 
 @media (max-width: 30rem) {
