@@ -120,7 +120,7 @@ export class CopilotAgent implements AgentController {
         clientName: "agent-outpost",
         workingDirectory: this.#workspace,
         model: this.#model,
-        reasoningEffort: "medium" as const,
+        ...(this.#model !== "auto" ? { reasoningEffort: "medium" as const } : {}),
         streaming: true,
         enableExperimentalMode: true,
         enableConfigDiscovery: true,
