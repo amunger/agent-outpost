@@ -163,6 +163,51 @@ test("screenshot tool verifies workspace conversation scrolling with typed actio
   }
 });
 
+test("workspace preview screenshot shows composer errors above the input", async (context) => {
+  if (!existsSync(chromium.executablePath())) {
+    context.skip("Playwright Chromium is not installed in this environment");
+    return;
+  }
+  const directory = mkdtempSync(join(tmpdir(), "agent-outpost-screenshot-error-"));
+  const artifactDirectory = join(directory, "artifacts");
+  const eventStore = new EventStore(directory);
+  const eventHub = new SseHub();
+  const tool = createScreenshotTool({
+    artifactDirectory,
+    tailscaleUser: "owner@example.com",
+    workspacePublicDirectory: join(process.cwd(), "public"),
+    eventStore,
+    eventHub,
+  });
+
+  try {
+    assert.ok(tool.handler);
+    const actions = [
+      { type: "click", selector: ".chat-entry" },
+      { type: "fill", selector: "#message", value: "Preview error state" },
+      { type: "click", selector: "#send", waitAfterMs: 100 },
+      { type: "click", selector: "#error" },
+    ] as const;
+    const result = await tool.handler(
+      { source: "workspace", viewport: "mobile", actions },
+      {
+        sessionId: "test",
+        toolCallId: "call-error",
+        toolName: tool.name,
+        arguments: { source: "workspace", viewport: "mobile", actions },
+      },
+    ) as { readonly status: string; readonly artifactUrl?: string };
+
+    assert.equal(result.status, "captured");
+    assert.ok(result.artifactUrl);
+    assert.equal(existsSync(join(artifactDirectory, result.artifactUrl.split("/").at(-1) ?? "")), true);
+  } finally {
+    eventHub.close();
+    eventStore[Symbol.dispose]();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("screenshot tool reports unsafe deployed interactions without retrying the browser", async () => {
   const directory = mkdtempSync(join(tmpdir(), "agent-outpost-screenshot-safety-"));
   const eventStore = new EventStore(directory);
