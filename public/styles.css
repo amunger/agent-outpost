@@ -216,6 +216,7 @@ select {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 0.4rem;
+  margin-top: 0.5rem;
   padding: 0.6rem;
   border: 1px solid #334155;
   border-radius: 0.55rem;
