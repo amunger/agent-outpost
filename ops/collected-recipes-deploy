@@ -16,6 +16,7 @@ readonly build_home=/var/lib/collected-recipes/build-home
 readonly runtime_home=/var/lib/collected-recipes/runtime
 readonly build_runtime=/run/collected-recipes-build
 readonly runtime_runtime=/run/collected-recipes
+readonly runtime_import_directory="${runtime_home}/imports"
 readonly runtime_environment=/etc/collected-recipes/collected-recipes.env
 readonly outpost_entrypoint=http://127.0.0.1:3000/ready
 
@@ -137,6 +138,7 @@ commit_sha="${requested_revision}"
 operator_build="${operator_build_root}/${commit_sha}"
 build_directory="${build_root}/${commit_sha}"
 archive="${image_root}/${commit_sha}.oci"
+runtime_archive="${runtime_import_directory}/${commit_sha}.oci"
 
 cleanup() {
   set +e
@@ -150,7 +152,7 @@ cleanup() {
     podman --cgroup-manager=cgroupfs rm --force collected-recipes-candidate >/dev/null 2>&1
   git_agent worktree remove --force "${operator_build}" >/dev/null 2>&1
   rm -rf --one-file-system -- "${build_directory}"
-  rm -f -- "${archive}"
+  rm -f -- "${archive}" "${runtime_archive}"
 }
 trap cleanup EXIT
 
@@ -200,8 +202,11 @@ run_build podman --cgroup-manager=cgroupfs save \
   --output "${archive}" \
   "localhost/collected-recipes:${commit_sha}"
 
-chown collected-recipes-runtime:collected-recipes-runtime "${archive}"
-chmod 0600 "${archive}"
+install -d -o collected-recipes-runtime -g collected-recipes-runtime -m 0700 \
+  "${runtime_import_directory}"
+mv -T "${archive}" "${runtime_archive}"
+chown collected-recipes-runtime:collected-recipes-runtime "${runtime_archive}"
+chmod 0600 "${runtime_archive}"
 
 run_runtime() {
   runuser -u collected-recipes-runtime -- env \
@@ -210,7 +215,7 @@ run_runtime() {
     "$@"
 }
 
-run_runtime podman --cgroup-manager=cgroupfs load --input "${archive}"
+run_runtime podman --cgroup-manager=cgroupfs load --input "${runtime_archive}"
 image_id=$(run_runtime podman --cgroup-manager=cgroupfs image inspect \
   --format '{{.Id}}' \
   "localhost/collected-recipes:${commit_sha}")
