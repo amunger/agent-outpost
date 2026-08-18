@@ -177,11 +177,11 @@ fi
 runuser -u collected-recipes-build -- env \
   HOME=/var/lib/collected-recipes/build-home \
   XDG_RUNTIME_DIR=/run/collected-recipes-build \
-  podman info >/dev/null
+  podman --cgroup-manager=cgroupfs info >/dev/null
 runuser -u collected-recipes-runtime -- env \
   HOME=/var/lib/collected-recipes/runtime \
   XDG_RUNTIME_DIR=/run/collected-recipes \
-  podman info >/dev/null
+  podman --cgroup-manager=cgroupfs info >/dev/null
 
 systemctl daemon-reload
 systemctl enable --now agent-outpost-deploy.path

@@ -143,11 +143,11 @@ cleanup() {
   runuser -u collected-recipes-build -- env \
     HOME="${build_home}" \
     XDG_RUNTIME_DIR="${build_runtime}" \
-    podman image rm "localhost/collected-recipes:${commit_sha}" >/dev/null 2>&1
+    podman --cgroup-manager=cgroupfs image rm "localhost/collected-recipes:${commit_sha}" >/dev/null 2>&1
   runuser -u collected-recipes-runtime -- env \
     HOME="${runtime_home}" \
     XDG_RUNTIME_DIR="${runtime_runtime}" \
-    podman rm --force collected-recipes-candidate >/dev/null 2>&1
+    podman --cgroup-manager=cgroupfs rm --force collected-recipes-candidate >/dev/null 2>&1
   git_agent worktree remove --force "${operator_build}" >/dev/null 2>&1
   rm -rf --one-file-system -- "${build_directory}"
   rm -f -- "${archive}"
@@ -191,11 +191,11 @@ run_build() {
     "$@"
 }
 
-run_build podman build \
+run_build podman --cgroup-manager=cgroupfs build \
   --pull=newer \
   --tag "localhost/collected-recipes:${commit_sha}" \
   "${build_directory}"
-run_build podman save \
+run_build podman --cgroup-manager=cgroupfs save \
   --format oci-archive \
   --output "${archive}" \
   "localhost/collected-recipes:${commit_sha}"
@@ -210,8 +210,8 @@ run_runtime() {
     "$@"
 }
 
-run_runtime podman load --input "${archive}"
-image_id=$(run_runtime podman image inspect \
+run_runtime podman --cgroup-manager=cgroupfs load --input "${archive}"
+image_id=$(run_runtime podman --cgroup-manager=cgroupfs image inspect \
   --format '{{.Id}}' \
   "localhost/collected-recipes:${commit_sha}")
 if [[ ! "${image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
@@ -219,8 +219,8 @@ if [[ ! "${image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
   exit 1
 fi
 
-run_runtime podman rm --force collected-recipes-candidate >/dev/null 2>&1 || true
-run_runtime podman run \
+run_runtime podman --cgroup-manager=cgroupfs rm --force collected-recipes-candidate >/dev/null 2>&1 || true
+run_runtime podman --cgroup-manager=cgroupfs run \
   --detach \
   --name collected-recipes-candidate \
   --userns=keep-id:uid=1000,gid=1000 \
@@ -247,7 +247,7 @@ for _ in {1..90}; do
   fi
   sleep 1
 done
-run_runtime podman rm --force collected-recipes-candidate >/dev/null
+run_runtime podman --cgroup-manager=cgroupfs rm --force collected-recipes-candidate >/dev/null
 if [[ "${candidate_ready}" != true ]]; then
   echo "Collected Recipes candidate did not become healthy." >&2
   exit 1
@@ -291,10 +291,10 @@ if systemctl restart collected-recipes.service && wait_stable_health; then
       "${stored_image}" != "${image_id}" &&
       "${stored_image}" != "${previous_image}"
     ]]; then
-      run_runtime podman image rm "${stored_image}" >/dev/null 2>&1 || true
+      run_runtime podman --cgroup-manager=cgroupfs image rm "${stored_image}" >/dev/null 2>&1 || true
     fi
   done < <(
-    run_runtime podman images \
+    run_runtime podman --cgroup-manager=cgroupfs images \
       --format '{{.Id}}' \
       localhost/collected-recipes
   )
@@ -308,7 +308,7 @@ if [[ -n "${previous_commit}" && -n "${previous_image}" ]]; then
   systemctl restart collected-recipes.service
   if wait_stable_health; then
     if [[ "${image_id}" != "${previous_image}" ]]; then
-      run_runtime podman image rm "${image_id}" >/dev/null 2>&1 || true
+      run_runtime podman --cgroup-manager=cgroupfs image rm "${image_id}" >/dev/null 2>&1 || true
     fi
     exit 1
   fi
@@ -316,6 +316,6 @@ if [[ -n "${previous_commit}" && -n "${previous_image}" ]]; then
 else
   rm -f -- "${active_state}"
   systemctl stop collected-recipes.service || true
-  run_runtime podman image rm "${image_id}" >/dev/null 2>&1 || true
+  run_runtime podman --cgroup-manager=cgroupfs image rm "${image_id}" >/dev/null 2>&1 || true
 fi
 exit 1

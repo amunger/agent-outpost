@@ -19,7 +19,7 @@ if [[
   exit 1
 fi
 
-exec /usr/bin/podman run \
+exec /usr/bin/podman --cgroup-manager=cgroupfs run \
   --rm \
   --replace \
   --name collected-recipes \
