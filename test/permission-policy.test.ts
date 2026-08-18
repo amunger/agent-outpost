@@ -73,43 +73,43 @@ test("permission policy rejects interpreters and shell redirection", async () =>
     canOfferSessionApproval: false,
   });
 
-  test("permission policy applies the registered validation profile", async () => {
-    const request = {
-      kind: "shell",
-      fullCommandText: "npm run lint",
-      intention: "Lint the registered project",
-      commands: [{ identifier: "npm", readOnly: false }],
-      commandSegments: [{ identifier: "npm", fullCommandText: "npm run lint" }],
-      possiblePaths: [workspace],
-      possibleUrls: [],
-      hasWriteFileRedirection: false,
-      canOfferSessionApproval: false,
-    } satisfies PermissionRequest;
-
-    assert.equal((await handler(request, invocation)).kind, "reject");
-    const nextHandler = createPermissionHandler(workspace, undefined, "node-nextjs");
-    assert.equal((await nextHandler(request, invocation)).kind, "approve-once");
-  });
-
-  test("permission policy allows read-only diff validation", async () => {
-    const request = {
-      kind: "shell",
-      fullCommandText: "git diff --check",
-      intention: "Validate whitespace",
-      commands: [{ identifier: "git diff --check", readOnly: true }],
-      commandSegments: [{ identifier: "git diff", fullCommandText: "git diff --check" }],
-      possiblePaths: [],
-      possibleUrls: [],
-      hasWriteFileRedirection: false,
-      canOfferSessionApproval: false,
-    } satisfies PermissionRequest;
-
-    assert.equal((await handler(request, invocation)).kind, "approve-once");
-  });
-
   assert.equal((await handler(request("node -e \"console.log(process.env)\"", "node"), invocation)).kind, "reject");
   assert.equal((await handler(request("npm test > output.txt", "npm"), invocation)).kind, "reject");
   assert.equal((await handler(request("git status ; node -e attack", "git"), invocation)).kind, "reject");
+});
+
+test("permission policy applies the registered validation profile", async () => {
+  const request = {
+    kind: "shell",
+    fullCommandText: "npm run lint",
+    intention: "Lint the registered project",
+    commands: [{ identifier: "npm", readOnly: false }],
+    commandSegments: [{ identifier: "npm", fullCommandText: "npm run lint" }],
+    possiblePaths: [workspace],
+    possibleUrls: [],
+    hasWriteFileRedirection: false,
+    canOfferSessionApproval: false,
+  } satisfies PermissionRequest;
+
+  assert.equal((await handler(request, invocation)).kind, "reject");
+  const nextHandler = createPermissionHandler(workspace, undefined, "node-nextjs");
+  assert.equal((await nextHandler(request, invocation)).kind, "approve-once");
+});
+
+test("permission policy allows read-only diff validation", async () => {
+  const request = {
+    kind: "shell",
+    fullCommandText: "git diff --check",
+    intention: "Validate whitespace",
+    commands: [{ identifier: "git diff --check", readOnly: true }],
+    commandSegments: [{ identifier: "git diff", fullCommandText: "git diff --check" }],
+    possiblePaths: [],
+    possibleUrls: [],
+    hasWriteFileRedirection: false,
+    canOfferSessionApproval: false,
+  } satisfies PermissionRequest;
+
+  assert.equal((await handler(request, invocation)).kind, "approve-once");
 });
 
 test("permission policy rejects symlink escapes", async () => {

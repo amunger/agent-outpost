@@ -121,32 +121,6 @@ test("EventStore persists project-backed chats across restarts", () => {
         lastUsedAt: null,
       });
 
-      test("EventStore migrates legacy repository metadata without reassigning removed projects", () => {
-        const directory = mkdtempSync(join(tmpdir(), "agent-outpost-project-migration-"));
-        try {
-          using store = new EventStore(directory);
-          store.createChat({
-            id: "legacy-chat",
-            projectId: "github-0123456789abcdef",
-            name: "Legacy",
-            repository: "owner/metadata-only",
-          });
-          store.createChat({
-            id: "removed-project-chat",
-            projectId: "removed-project",
-            name: "Removed",
-            repository: "owner/removed",
-          });
-
-          store.adoptLegacyProjects("agent-outpost", "owner/agent-outpost");
-
-          assert.equal(store.getChat("legacy-chat")?.projectId, "agent-outpost");
-          assert.equal(store.getChat("legacy-chat")?.repository, "owner/agent-outpost");
-          assert.equal(store.getChat("removed-project-chat")?.projectId, "removed-project");
-        } finally {
-          rmSync(directory, { recursive: true, force: true });
-        }
-      });
       store.createChat({
         id: "second-chat",
         projectId: "github-second",
@@ -169,6 +143,33 @@ test("EventStore persists project-backed chats across restarts", () => {
       assert.equal(store.touchChat("missing-chat"), undefined);
       assert.equal(store.touchChat("default-chat")?.id, "default-chat");
     }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("EventStore migrates legacy repository metadata without reassigning removed projects", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agent-outpost-project-migration-"));
+  try {
+    using store = new EventStore(directory);
+    store.createChat({
+      id: "legacy-chat",
+      projectId: "github-0123456789abcdef",
+      name: "Legacy",
+      repository: "owner/metadata-only",
+    });
+    store.createChat({
+      id: "removed-project-chat",
+      projectId: "removed-project",
+      name: "Removed",
+      repository: "owner/removed",
+    });
+
+    store.adoptLegacyProjects("agent-outpost", "owner/agent-outpost");
+
+    assert.equal(store.getChat("legacy-chat")?.projectId, "agent-outpost");
+    assert.equal(store.getChat("legacy-chat")?.repository, "owner/agent-outpost");
+    assert.equal(store.getChat("removed-project-chat")?.projectId, "removed-project");
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
