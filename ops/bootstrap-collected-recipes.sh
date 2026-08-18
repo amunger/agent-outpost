@@ -96,9 +96,10 @@ install -d -o collected-recipes-runtime -g collected-recipes-runtime -m 0700 \
   /var/lib/collected-recipes/data \
   /run/collected-recipes
 install -d -o root -g root -m 0700 \
-  /var/lib/collected-recipes/deployment \
   /var/lib/collected-recipes/backups \
   /etc/collected-recipes
+install -d -o root -g collected-recipes-runtime -m 0750 \
+  /var/lib/collected-recipes/deployment
 
 if [[ ! -d "${recipes_workspace}/.git" ]]; then
   runuser -u agent-outpost -- git clone \

@@ -281,6 +281,8 @@ fi
 
 atomic_write_state() {
   printf '%s %s\n' "$1" "$2" > "${active_state}.next"
+  chown root:collected-recipes-runtime "${active_state}.next"
+  chmod 0640 "${active_state}.next"
   mv -Tf "${active_state}.next" "${active_state}"
 }
 
