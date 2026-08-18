@@ -42,6 +42,39 @@ test("EventStore persists and replays screenshot artifact events", () => {
   }
 });
 
+test("EventStore isolates events between concurrently active chats", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agent-outpost-chat-isolation-"));
+  try {
+    using store = new EventStore(directory);
+    store.append({ kind: "user.message", payload: { content: "chat A message" } }, "chat-a");
+    store.append({ kind: "user.message", payload: { content: "chat B message" } }, "chat-b");
+
+    const chatAEvents = store.list({ chatId: "chat-a" });
+    const chatBEvents = store.list({ chatId: "chat-b" });
+
+    assert.deepEqual(
+      chatAEvents.map((event) => event.payload),
+      [{ content: "chat A message" }],
+    );
+    assert.deepEqual(
+      chatBEvents.map((event) => event.payload),
+      [{ content: "chat B message" }],
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("EventStore no longer exposes shared mutable active-chat state", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agent-outpost-no-active-chat-"));
+  try {
+    using store = new EventStore(directory);
+    assert.equal("setActiveChat" in store, false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("EventStore persists project-backed chats across restarts", () => {
   const directory = mkdtempSync(join(tmpdir(), "agent-outpost-chats-"));
   try {

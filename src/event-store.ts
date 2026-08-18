@@ -167,7 +167,6 @@ function parseRow(row: EventRow): OutpostEvent {
 
 export class EventStore implements Disposable {
   readonly #database: DatabaseSync;
-  #activeChatId: string | null = null;
 
   public constructor(dataDirectory: string) {
     mkdirSync(dataDirectory, { recursive: true, mode: 0o700 });
@@ -197,10 +196,6 @@ export class EventStore implements Disposable {
     if (!eventColumns.some(({ name }) => name === "chat_id")) {
       this.#database.exec("ALTER TABLE events ADD COLUMN chat_id TEXT");
     }
-  }
-
-  public setActiveChat(id: string): void {
-    this.#activeChatId = id;
   }
 
   public adoptLegacyEvents(id: string): void {
@@ -310,11 +305,12 @@ export class EventStore implements Disposable {
 
   public append<K extends Exclude<OutpostEventKind, "assistant.delta">>(
     input: StoredEventInput<K>,
+    chatId: string | null = null,
   ): OutpostEvent<K> {
     const createdAt = new Date().toISOString();
     const result = this.#database
       .prepare("INSERT INTO events (chat_id, kind, created_at, payload) VALUES (?, ?, ?, ?)")
-      .run(this.#activeChatId, input.kind, createdAt, JSON.stringify(input.payload));
+      .run(chatId, input.kind, createdAt, JSON.stringify(input.payload));
 
     if (typeof result.lastInsertRowid !== "number") {
       throw new Error("SQLite did not return a numeric event identifier");
@@ -328,10 +324,10 @@ export class EventStore implements Disposable {
     };
   }
 
-  public list(options: { readonly after?: number; readonly limit?: number; readonly chatId?: string } = {}): OutpostEvent[] {
+  public list(options: { readonly after?: number; readonly limit?: number; readonly chatId?: string | null } = {}): OutpostEvent[] {
     const after = options.after ?? 0;
     const limit = Math.min(Math.max(options.limit ?? 500, 1), 2_000);
-    const chatId = options.chatId ?? this.#activeChatId;
+    const chatId = options.chatId ?? null;
     const rows = this.#database
       .prepare(
         `SELECT id, chat_id, kind, created_at, payload FROM events

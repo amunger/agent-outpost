@@ -19,6 +19,7 @@ const modelSelect = document.querySelector("#model-select");
 const saveModelButton = document.querySelector("#save-model");
 let streamingMessage;
 let autoScrollTimeline = true;
+let activeChatId;
 
 function assertElement(element, selector) {
   if (!element) {
@@ -421,6 +422,7 @@ function showChatList() {
 
 async function openChat(chat) {
   await request(`/api/chats/${encodeURIComponent(chat.id)}/select`, { method: "POST" });
+  activeChatId = chat.id;
   showChatView();
   chatTitle.textContent = chat.name;
   autoScrollTimeline = true;
@@ -430,7 +432,7 @@ async function openChat(chat) {
 }
 
 async function loadSession() {
-  const snapshot = await request("/api/session");
+  const snapshot = await request(`/api/session?chatId=${encodeURIComponent(activeChatId)}`);
   timeline.replaceChildren();
   snapshot.events.forEach(handleEvent);
   setState(snapshot.state);
@@ -441,7 +443,7 @@ async function loadSession() {
 
 function connectEvents(after) {
   closeEvents();
-  eventSource = new EventSource(`/api/session/events?after=${after}`);
+  eventSource = new EventSource(`/api/session/events?after=${after}&chatId=${encodeURIComponent(activeChatId)}`);
   const source = eventSource;
   const types = [
     "user.message",
@@ -508,7 +510,7 @@ composer.addEventListener("submit", async (event) => {
   autoScrollTimeline = true;
   scrollTimelineToBottom();
   try {
-    await request("/api/session/messages", {
+    await request(`/api/session/messages?chatId=${encodeURIComponent(activeChatId)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: messageInput.value }),

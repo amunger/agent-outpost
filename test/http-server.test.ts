@@ -17,6 +17,7 @@ class FakeAgent implements AgentController {
   public state: AgentState = "idle";
   public model = "auto";
   public readonly messages: string[] = [];
+  public readonly sentChatIds: (string | null)[] = [];
 
   public async listModels(): Promise<string[]> {
     return ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "claude-sonnet-4.5"];
@@ -28,8 +29,9 @@ class FakeAgent implements AgentController {
 
   public async start(): Promise<void> {}
 
-  public async send(content: string): Promise<void> {
+  public async send(content: string, chatId: string | null): Promise<void> {
     this.messages.push(content);
+    this.sentChatIds.push(chatId);
   }
 
   public async cancel(): Promise<void> {}
@@ -188,7 +190,7 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
     assert.equal(renamedChatBody.chat.name, "Release notes");
     assert.equal(eventStore.listChats().find(({ id }) => id === chat.id)?.name, "Release notes");
 
-    eventStore.append({ kind: "user.message", payload: { content: "primary chat message" } });
+    eventStore.append({ kind: "user.message", payload: { content: "primary chat message" } }, "test");
     const selectedChat = await fetch(`${baseUrl}/api/chats/${encodeURIComponent(chat.id)}/select`, {
       method: "POST",
       headers: {
@@ -197,7 +199,7 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
       },
     });
     assert.equal(selectedChat.status, 200);
-    const newChatSession = await fetch(`${baseUrl}/api/session`, {
+    const newChatSession = await fetch(`${baseUrl}/api/session?chatId=${encodeURIComponent(chat.id)}`, {
       headers: { "Tailscale-User-Login": "owner@example.com" },
     });
     const newChatSessionBody = (await newChatSession.json()) as { events: unknown[] };
@@ -245,6 +247,114 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
       headers: { "Tailscale-User-Login": "owner@example.com", Origin: baseUrl },
     });
     assert.equal(missingDelete.status, 404);
+  } finally {
+    eventHub.close();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    resourceMonitor[Symbol.dispose]();
+    eventStore[Symbol.dispose]();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Concurrent chat switches do not cross-contaminate message routing or history", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agent-outpost-http-contamination-"));
+  const publicDirectory = join(directory, "public");
+  const artifactDirectory = join(directory, "artifacts");
+  mkdirSync(publicDirectory);
+  mkdirSync(artifactDirectory);
+  writeFileSync(join(publicDirectory, "index.html"), "<h1>Outpost</h1>");
+  writeFileSync(join(publicDirectory, "app.js"), "console.log('outpost');");
+  writeFileSync(join(publicDirectory, "styles.css"), "body { color: red; }");
+
+  const eventStore = new EventStore(directory);
+  const resourceMonitor = new ResourceMonitor();
+  const eventHub = new SseHub();
+  const agent = new FakeAgent();
+  const config: OutpostConfig = {
+    host: "127.0.0.1",
+    port: 3000,
+    workspace: directory,
+    dataDirectory: directory,
+    publicDirectory,
+    allowedTailscaleUser: "owner@example.com",
+    allowedGitRemote: "https://github.com/amunger/agent-outpost.git",
+    githubRepository: "amunger/agent-outpost",
+    deploymentRequestDirectory: join(directory, "deploy-requests"),
+    artifactDirectory,
+    sessionId: "primary-chat",
+    model: "auto",
+    production: true,
+  };
+  const server = createOutpostServer({
+    config,
+    agent,
+    eventStore,
+    eventHub,
+    resourceMonitor,
+    listRepositories: () => ["amunger/agent-outpost"],
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const headers = { "Tailscale-User-Login": "owner@example.com", Origin: baseUrl };
+
+    const createdChat = await fetch(`${baseUrl}/api/chats`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ repository: "amunger/agent-outpost" }),
+    });
+    const secondChat = ((await createdChat.json()) as { chat: { id: string } }).chat;
+
+    // Select the second chat first (simulating a second browser tab), then send
+    // a message intended for the primary chat. The message must be attributed
+    // to the primary chat, not silently redirected to whichever chat was most
+    // recently selected by an unrelated tab/request.
+    await fetch(`${baseUrl}/api/chats/${encodeURIComponent(secondChat.id)}/select`, {
+      method: "POST",
+      headers,
+    });
+    const sendResponse = await fetch(
+      `${baseUrl}/api/session/messages?chatId=${encodeURIComponent("primary-chat")}`,
+      {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ content: "message for primary chat" }),
+      },
+    );
+    assert.equal(sendResponse.status, 202);
+    assert.deepEqual(agent.sentChatIds, ["primary-chat"]);
+
+    // Simulate the agent turn's own event persistence, scoped to the chatId it was given.
+    eventStore.append(
+      { kind: "user.message", payload: { content: "message for primary chat" } },
+      "primary-chat",
+    );
+
+    const primarySession = await fetch(
+      `${baseUrl}/api/session?chatId=${encodeURIComponent("primary-chat")}`,
+      { headers },
+    );
+    const primaryEvents = ((await primarySession.json()) as { events: { payload: { content?: string } }[] }).events;
+    assert.equal(
+      primaryEvents.some((event) => event.payload.content === "message for primary chat"),
+      true,
+      "the primary chat's own history must contain its message",
+    );
+
+    const secondSession = await fetch(
+      `${baseUrl}/api/session?chatId=${encodeURIComponent(secondChat.id)}`,
+      { headers },
+    );
+    const secondEvents = ((await secondSession.json()) as { events: { payload: { content?: string } }[] }).events;
+    assert.equal(
+      secondEvents.some((event) => event.payload.content === "message for primary chat"),
+      false,
+      "the second chat must not see a message that belongs to the primary chat",
+    );
   } finally {
     eventHub.close();
     await new Promise<void>((resolve, reject) => {

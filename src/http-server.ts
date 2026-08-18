@@ -221,6 +221,12 @@ function deploymentCandidateEvents(eventStore: EventStore): Map<string, Deployme
   return candidates;
 }
 
+function sessionEvents(eventStore: EventStore, chatId: string, after: number) {
+  const scoped = eventStore.list({ chatId, after });
+  const global = eventStore.list({ chatId: null, after });
+  return [...scoped, ...global].sort((left, right) => left.id - right.id);
+}
+
 async function serveStatic(
   requestPath: string,
   publicDirectory: string,
@@ -421,19 +427,21 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
   const lastDeploymentAt = new Date().toISOString();
   const initialRepository = repositoryLabel(config.allowedGitRemote ?? basename(config.workspace));
   eventStore.adoptLegacyEvents(config.sessionId);
-  eventStore.setActiveChat(config.sessionId);
   eventStore.ensureChat({
     id: config.sessionId,
     projectId: projectIdForRepository(initialRepository),
     name: "Mobile agent",
     repository: initialRepository,
-    lastUsedAt: eventStore.list().at(-1)?.createdAt ?? null,
+    lastUsedAt: eventStore.list({ chatId: config.sessionId }).at(-1)?.createdAt ?? null,
   });
-  let selectedChatId = config.sessionId;
   const chatRecord = (chat: StoredChat): ChatRecord => ({
     ...chat,
     state: agent.state,
   });
+
+  function resolveChatId(url: URL): string {
+    return url.searchParams.get("chatId") ?? config.sessionId;
+  }
 
   return createServer(async (request, response) => {
     setSecurityHeaders(response);
@@ -524,8 +532,6 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
           sendJson(response, 404, { error: "Chat not found" });
           return;
         }
-        selectedChatId = chat.id;
-        eventStore.setActiveChat(chat.id);
         sendJson(response, 200, { chat: chatRecord(chat) });
         return;
       }
@@ -568,15 +574,12 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
           sendJson(response, 404, { error: "Chat not found" });
           return;
         }
-        if (selectedChatId === id) {
-          selectedChatId = config.sessionId;
-        }
         sendJson(response, 200, { deleted: true });
         return;
       }
 
       if (request.method === "GET" && url.pathname === "/api/session") {
-        sendJson(response, 200, { state: agent.state, events: eventStore.list() });
+        sendJson(response, 200, { state: agent.state, events: eventStore.list({ chatId: resolveChatId(url) }) });
         return;
       }
 
@@ -616,15 +619,21 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
         response.setHeader("Cache-Control", "no-cache, no-transform");
         response.setHeader("Connection", "keep-alive");
         response.flushHeaders();
-        const remove = eventHub.add(response, eventStore.list({ after: parseEventCursor(request, url) }));
+        const chatId = resolveChatId(url);
+        const remove = eventHub.add(
+          response,
+          sessionEvents(eventStore, chatId, parseEventCursor(request, url)),
+          chatId,
+        );
         request.on("close", remove);
         return;
       }
 
       if (request.method === "POST" && url.pathname === "/api/session/messages") {
+        const chatId = resolveChatId(url);
         const message = parseMessageBody(await readJsonBody(request));
-        eventStore.touchChat(selectedChatId);
-        await agent.send(message.content);
+        eventStore.touchChat(chatId);
+        await agent.send(message.content, chatId);
         sendJson(response, 202, { accepted: true });
         return;
       }

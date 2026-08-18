@@ -17,7 +17,7 @@ export interface AgentController {
   listModels(): Promise<string[]>;
   setModel(model: string): void;
   start(): Promise<void>;
-  send(content: string): Promise<void>;
+  send(content: string, chatId: string | null): Promise<void>;
   cancel(): Promise<void>;
   stop(): Promise<void>;
 }
@@ -60,6 +60,7 @@ export class CopilotAgent implements AgentController {
   #session: CopilotSession | undefined;
   #state: AgentState = "starting";
   #activeTurn: Promise<void> | undefined;
+  #activeChatId: string | null = null;
   #unsubscribe: (() => void) | undefined;
 
   public constructor(options: CopilotAgentOptions) {
@@ -177,17 +178,21 @@ export class CopilotAgent implements AgentController {
       this.#setState("idle");
     } catch (error) {
       this.#publishStored(
-        this.#eventStore.append({
-          kind: "session.error",
-          payload: { message: `Copilot initialization failed: ${errorMessage(error)}` },
-        }),
+        this.#eventStore.append(
+          {
+            kind: "session.error",
+            payload: { message: `Copilot initialization failed: ${errorMessage(error)}` },
+          },
+          null,
+        ),
+        null,
       );
       this.#setState("failed");
       throw error;
     }
   }
 
-  public async send(content: string): Promise<void> {
+  public async send(content: string, chatId: string | null): Promise<void> {
     const message = content.trim();
     if (!message) {
       throw new Error("Message content is required");
@@ -199,9 +204,13 @@ export class CopilotAgent implements AgentController {
       throw new Error("The agent is already processing a message");
     }
 
-    this.#publishStored(this.#eventStore.append({ kind: "user.message", payload: { content: message } }));
+    this.#activeChatId = chatId;
+    this.#publishStored(
+      this.#eventStore.append({ kind: "user.message", payload: { content: message } }, chatId),
+      chatId,
+    );
     this.#setState("running");
-    this.#activeTurn = this.#processTurn(message);
+    this.#activeTurn = this.#processTurn(message, chatId);
     void this.#activeTurn.finally(() => {
       this.#activeTurn = undefined;
     });
@@ -234,7 +243,7 @@ export class CopilotAgent implements AgentController {
     }
   }
 
-  async #processTurn(message: string): Promise<void> {
+  async #processTurn(message: string, chatId: string | null): Promise<void> {
     const session = this.#session;
     if (!session) {
       throw new Error("Copilot session disconnected before the turn started");
@@ -243,31 +252,42 @@ export class CopilotAgent implements AgentController {
     try {
       await session.sendAndWait({ prompt: message }, 30 * 60 * 1_000);
     } catch (error) {
-      const failure = this.#eventStore.append({
-        kind: "session.error",
-        payload: { message: errorMessage(error) },
-      });
-      this.#publishStored(failure);
+      const failure = this.#eventStore.append(
+        {
+          kind: "session.error",
+          payload: { message: errorMessage(error) },
+        },
+        chatId,
+      );
+      this.#publishStored(failure, chatId);
       this.#setState("failed");
     }
   }
 
   #handleSessionEvent(event: SessionEvent): void {
+    const chatId = this.#activeChatId;
     switch (event.type) {
       case "assistant.message_delta":
-        this.#eventHub.publish({
-          id: 0,
-          kind: "assistant.delta",
-          createdAt: new Date().toISOString(),
-          payload: { content: event.data.deltaContent },
-        });
+        this.#eventHub.publish(
+          {
+            id: 0,
+            kind: "assistant.delta",
+            createdAt: new Date().toISOString(),
+            payload: { content: event.data.deltaContent },
+          },
+          chatId,
+        );
         break;
       case "assistant.message":
         this.#publishStored(
-          this.#eventStore.append({
-            kind: "assistant.message",
-            payload: { content: event.data.content },
-          }),
+          this.#eventStore.append(
+            {
+              kind: "assistant.message",
+              payload: { content: event.data.content },
+            },
+            chatId,
+          ),
+          chatId,
         );
         break;
       case "session.idle":
@@ -275,10 +295,14 @@ export class CopilotAgent implements AgentController {
         break;
       case "session.error":
         this.#publishStored(
-          this.#eventStore.append({
-            kind: "session.error",
-            payload: { message: event.data.message },
-          }),
+          this.#eventStore.append(
+            {
+              kind: "session.error",
+              payload: { message: event.data.message },
+            },
+            chatId,
+          ),
+          chatId,
         );
         this.#setState("failed");
         break;
@@ -290,10 +314,13 @@ export class CopilotAgent implements AgentController {
       return;
     }
     this.#state = state;
-    this.#publishStored(this.#eventStore.append({ kind: "session.state", payload: { state } }));
+    this.#publishStored(
+      this.#eventStore.append({ kind: "session.state", payload: { state } }, this.#activeChatId),
+      this.#activeChatId,
+    );
   }
 
-  #publishStored(event: OutpostEvent): void {
-    this.#eventHub.publish(event);
+  #publishStored(event: OutpostEvent, chatId: string | null): void {
+    this.#eventHub.publish(event, chatId);
   }
 }
