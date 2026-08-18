@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -12,6 +12,7 @@ import {
   type CopilotSessionAdapter,
 } from "../src/agent.js";
 import { EventStore } from "../src/event-store.js";
+import { ProjectRegistry } from "../src/project-registry.js";
 import { SseHub } from "../src/sse-hub.js";
 
 interface PendingTurn {
@@ -29,8 +30,10 @@ interface FakeSession {
 function createFakeCopilotClient(): {
   readonly client: CopilotClientAdapter;
   readonly sessions: Map<string, FakeSession>;
+  readonly workingDirectories: Map<string, string>;
 } {
   const sessions = new Map<string, FakeSession>();
+  const workingDirectories = new Map<string, string>();
 
   function createSession(): FakeSession {
     const listeners = new Set<(event: SessionEvent) => void>();
@@ -75,8 +78,12 @@ function createFakeCopilotClient(): {
       if (!options.sessionId) {
         throw new Error("Fake Copilot sessions require a sessionId");
       }
+      if (!options.workingDirectory) {
+        throw new Error("Fake Copilot sessions require a workingDirectory");
+      }
       const session = createSession();
       sessions.set(options.sessionId, session);
+      workingDirectories.set(options.sessionId, options.workingDirectory);
       return session.adapter;
     },
     resumeSession: async (sessionId) => {
@@ -85,14 +92,67 @@ function createFakeCopilotClient(): {
       return session.adapter;
     },
   };
-  return { client, sessions };
+  return { client, sessions, workingDirectories };
 }
 
-test("A phone can leave one chat running and use another without mixing replies", async () => {
+test("A phone can use different projects concurrently without crossing workspaces", async () => {
   const directory = mkdtempSync(join(tmpdir(), "agent-outpost-agent-"));
+  const firstWorkspace = join(directory, "first-workspace");
+  const secondWorkspace = join(directory, "second-workspace");
+  mkdirSync(firstWorkspace);
+  mkdirSync(secondWorkspace);
   const eventStore = new EventStore(directory);
+  eventStore.ensureChat({
+    id: "primary-chat",
+    projectId: "first-project",
+    name: "Primary",
+    repository: "owner/first",
+    lastUsedAt: null,
+  });
+  eventStore.createChat({
+    id: "first-chat",
+    projectId: "first-project",
+    name: "First",
+    repository: "owner/first",
+  });
+  eventStore.createChat({
+    id: "same-project-chat",
+    projectId: "first-project",
+    name: "Same project",
+    repository: "owner/first",
+  });
+  eventStore.createChat({
+    id: "second-chat",
+    projectId: "second-project",
+    name: "Second",
+    repository: "owner/second",
+  });
+  const projects = new ProjectRegistry("first-project", [
+    {
+      id: "first-project",
+      name: "First Project",
+      repository: "owner/first",
+      workspace: firstWorkspace,
+      integrationBranch: "agent/current",
+      deploymentTargetId: "first-project",
+      deploymentRequestDirectory: join(directory, "first-requests"),
+      validationProfile: "agent-outpost",
+      workspacePreview: "none",
+    },
+    {
+      id: "second-project",
+      name: "Second Project",
+      repository: "owner/second",
+      workspace: secondWorkspace,
+      integrationBranch: "agent/current",
+      deploymentTargetId: "second-project",
+      deploymentRequestDirectory: join(directory, "second-requests"),
+      validationProfile: "node-nextjs",
+      workspacePreview: "none",
+    },
+  ]);
   const eventHub = new SseHub();
-  const { client, sessions } = createFakeCopilotClient();
+  const { client, sessions, workingDirectories } = createFakeCopilotClient();
   const agent = new CopilotAgent({
     workspace: directory,
     sessionId: "primary-chat",
@@ -101,6 +161,8 @@ test("A phone can leave one chat running and use another without mixing replies"
     artifactDirectory: join(directory, "artifacts"),
     eventStore,
     eventHub,
+    projects,
+    resolveProjectId: (chatId) => eventStore.getChat(chatId)?.projectId,
     client,
   });
 
@@ -108,12 +170,18 @@ test("A phone can leave one chat running and use another without mixing replies"
     await agent.start();
     await agent.send("work in the first chat", "first-chat");
     await agent.send("work in the second chat", "second-chat");
+    await assert.rejects(
+      agent.send("conflicting work", "same-project-chat"),
+      /First Project is already processing a message/,
+    );
 
     const firstSession = sessions.get("first-chat");
     const secondSession = sessions.get("second-chat");
     assert.ok(firstSession);
     assert.ok(secondSession);
     assert.notEqual(firstSession, secondSession);
+    assert.equal(workingDirectories.get("first-chat"), firstWorkspace);
+    assert.equal(workingDirectories.get("second-chat"), secondWorkspace);
     assert.deepEqual(firstSession.pendingTurns.map(({ prompt }) => prompt), [
       "work in the first chat",
     ]);
@@ -166,6 +234,13 @@ test("A phone can leave one chat running and use another without mixing replies"
       ),
       false,
     );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await agent.send("work after the first chat finishes", "same-project-chat");
+    const sameProjectSession = sessions.get("same-project-chat");
+    assert.ok(sameProjectSession);
+    assert.deepEqual(sameProjectSession.pendingTurns.map(({ prompt }) => prompt), [
+      "work after the first chat finishes",
+    ]);
 
     secondSession.emit({
       type: "assistant.message",
@@ -183,6 +258,7 @@ test("A phone can leave one chat running and use another without mixing replies"
       data: {},
     });
     secondSession.pendingTurns[0]?.resolve();
+    sameProjectSession.pendingTurns[0]?.resolve();
   } finally {
     await agent.stop();
     eventHub.close();

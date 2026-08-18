@@ -148,3 +148,18 @@ The controller:
 
 Do not weaken the existing controls to make an agent action more convenient.
 Add a narrow typed tool or explicit reviewed maintenance path instead.
+
+## Registered projects
+
+A root-owned registry may define additional trusted development projects. Chat
+identity resolves to exactly one registered workspace, remote, branch,
+validation profile, issue repository, and deployment request spool. The mobile
+API does not turn every repository visible to GitHub CLI into a trusted
+project, and turns that share one checkout are serialized.
+
+Each deployment target keeps its own privileged adapter. Collected Recipes uses
+a credential-free rootless build identity and a separate secret-bearing
+rootless runtime identity; Agent Outpost receives neither a Podman socket nor
+recipe runtime credentials. This is logical isolation among reviewed
+development repositories plus process/filesystem isolation for the deployed
+service, not a claim that hostile repository code is safe to approve and run.

@@ -1,0 +1,19 @@
+[Unit]
+Description=Deploy a requested Collected Recipes revision
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/collected-recipes-deploy
+TimeoutStartSec=45min
+PrivateTmp=true
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUQuota=100%
+MemoryHigh=768M
+MemoryMax=1024M
+IPAddressDeny=169.254.169.254
+IPAddressDeny=100.64.0.0/10
+UMask=0077

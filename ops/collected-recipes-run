@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly active_state=/var/lib/collected-recipes/deployment/active
+readonly data_directory=/var/lib/collected-recipes/data
+
+if [[ ! -f "${active_state}" || -L "${active_state}" ]]; then
+  echo "Collected Recipes active state is missing or invalid." >&2
+  exit 1
+fi
+
+read -r commit_sha image_id extra < "${active_state}"
+if [[
+  ! "${commit_sha}" =~ ^[0-9a-f]{40}$ ||
+  ! "${image_id}" =~ ^sha256:[0-9a-f]{64}$ ||
+  -n "${extra:-}"
+]]; then
+  echo "Collected Recipes active state is invalid." >&2
+  exit 1
+fi
+
+exec /usr/bin/podman run \
+  --rm \
+  --replace \
+  --name collected-recipes \
+  --userns=keep-id:uid=1000,gid=1000 \
+  --read-only \
+  --cap-drop=all \
+  --security-opt=no-new-privileges \
+  --pids-limit=256 \
+  --memory=1280m \
+  --memory-swap=1536m \
+  --cpus=1 \
+  --log-driver=journald \
+  --network slirp4netns:allow_host_loopback=false \
+  --publish 127.0.0.1:3100:3000 \
+  --tmpfs /tmp:rw,size=256m,mode=1777,noexec,nosuid,nodev \
+  --tmpfs /app/.next/cache:rw,size=64m,mode=1777,noexec,nosuid,nodev \
+  --volume "${data_directory}:/data:rw" \
+  --env COPILOT_GITHUB_TOKEN \
+  --env FDC_API_KEY \
+  --env RECIPE_PUBLIC_BASE_URL \
+  --env RECIPE_REQUIRE_TAILSCALE_IDENTITY \
+  --env RECIPE_DATABASE_PATH=/data/recipes.db \
+  "${image_id}"

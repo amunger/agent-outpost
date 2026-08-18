@@ -157,8 +157,10 @@ machine's loopback interface and local files.
 - [Bootstrap](docs/bootstrap.md) — provisioning a replacement installation.
 - [Screenshot acceptance test](docs/screenshot-acceptance-test.md) —
   plain-language phone UX contract.
-- [Multi-project proposal](docs/multi-project-spec.md) — future direction; not
-  the current production architecture.
+- [Multi-project design](docs/multi-project-spec.md) — project registry,
+  isolation, API, client, and deployment direction.
+- [Collected Recipes private service](docs/collected-recipes-deployment.md) —
+  reviewed provisioning and operations for the first additional project.
 
 ## Agent roles
 
@@ -177,14 +179,16 @@ Repository-wide role selection is defined in
 
 The single-user Azure deployment is operational. It remains an evolving MVP:
 
-- One principal repository workspace with independent persistent Copilot
-  sessions for each chat.
+- One default repository workspace with independent persistent Copilot sessions
+  for each chat; additional registered workspaces require privileged
+  provisioning.
 - GitHub-specific repository and issue workflows.
 - Private access through Tailscale.
 - Copilot local sandbox functionality is experimental.
 - Built-in GitHub Mobile CLI remote control is disabled by the owner's
   organization; the custom Agent Outpost UI is the supported mobile surface.
-- Multi-project support is a proposal, not a deployed capability.
+- Project-aware application support is implemented but remains inactive until a
+  root-owned registry and project workspaces are provisioned.
 
 ## License
 

@@ -33,12 +33,59 @@ test("publish tool stages, commits with trailer, and pushes agent/current", asyn
       allowedGitRemote: remote,
       githubRepository: "owner/repository",
     });
+
     assert.ok(publish.handler);
     const result = await publish.handler({ message: "Update readme" }, {
       sessionId: "test",
       toolCallId: "publish-1",
       toolName: publish.name,
       arguments: { message: "Update readme" },
+    });
+
+    test("publish tool uses the registered project's integration branch", async () => {
+      const root = mkdtempSync(join(tmpdir(), "agent-outpost-project-publish-"));
+      const remote = join(root, "remote.git");
+      const repository = join(root, "repository");
+
+      try {
+        execFileSync("git", ["init", "--bare", remote]);
+        execFileSync("git", ["init", "--initial-branch=recipes/current", repository]);
+        git(repository, ["config", "user.name", "Test"]);
+        git(repository, ["config", "user.email", "test@example.com"]);
+        git(repository, ["remote", "add", "origin", remote]);
+        writeFileSync(join(repository, "README.md"), "initial\n");
+        git(repository, ["add", "README.md"]);
+        git(repository, ["commit", "-m", "Initial"]);
+        git(repository, ["push", "--set-upstream", "origin", "recipes/current"]);
+        writeFileSync(join(repository, "README.md"), "updated\n");
+
+        const [publish] = createRepositoryTools({
+          projectName: "Collected Recipes",
+          workspace: repository,
+          allowedGitRemote: remote,
+          integrationBranch: "recipes/current",
+          githubRepository: "owner/collected-recipes",
+        });
+        const result = await publish.handler?.(
+          { message: "Update recipe app" },
+          {
+            sessionId: "recipes-chat",
+            toolCallId: "project-publish",
+            toolName: publish.name,
+            arguments: { message: "Update recipe app" },
+          },
+        );
+
+        assert.ok(result && typeof result === "object" && "status" in result && "commitSha" in result);
+        assert.equal(result.status, "published");
+        assert.equal(typeof result.commitSha, "string");
+        assert.equal(
+          git(repository, ["rev-parse", "origin/recipes/current"]),
+          result.commitSha,
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
     });
 
     const commitSha = git(repository, ["rev-parse", "HEAD"]);
@@ -135,7 +182,7 @@ test("publish tool rejects a remote that is not explicitly allowed", async () =>
     );
     assert.deepEqual(result, {
       status: "blocked",
-      error: "The origin push URL does not match OUTPOST_ALLOWED_GIT_REMOTE",
+      error: "The origin push URL does not match the registered project remote",
       message: "Publishing was not attempted or did not complete. Resolve this error before retrying.",
     });
   } finally {

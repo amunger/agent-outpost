@@ -12,6 +12,7 @@ import { EventStore } from "../src/event-store.js";
 import { createOutpostServer } from "../src/http-server.js";
 import { ResourceMonitor } from "../src/resource-monitor.js";
 import { SseHub } from "../src/sse-hub.js";
+import { ProjectRegistry } from "../src/project-registry.js";
 
 class FakeAgent implements AgentController {
   public state: AgentState = "idle";
@@ -62,6 +63,12 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
   utimesSync(expiredArtifactPath, expiredAt, expiredAt);
 
   const eventStore = new EventStore(directory);
+  eventStore.createChat({
+    id: "disabled-project-chat",
+    projectId: "disabled-project",
+    name: "Disabled",
+    repository: "amunger/disabled",
+  });
   const resourceMonitor = new ResourceMonitor();
   const eventHub = new SseHub();
   const agent = new FakeAgent();
@@ -80,13 +87,41 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
     model: "auto",
     production: true,
   };
+  const projects = new ProjectRegistry("agent-outpost", [
+    {
+      id: "agent-outpost",
+      name: "Agent Outpost",
+      repository: "amunger/agent-outpost",
+      workspace: directory,
+      allowedGitRemote: "https://github.com/amunger/agent-outpost.git",
+      integrationBranch: "agent/current",
+      githubRepository: "amunger/agent-outpost",
+      deploymentTargetId: "agent-outpost",
+      deploymentRequestDirectory: join(directory, "deploy-requests"),
+      validationProfile: "agent-outpost",
+      workspacePreview: "static-public",
+    },
+    {
+      id: "second-repo",
+      name: "Second Repo",
+      repository: "amunger/second-repo",
+      workspace: join(directory, "second-repo"),
+      allowedGitRemote: "https://github.com/amunger/second-repo.git",
+      integrationBranch: "agent/current",
+      githubRepository: "amunger/second-repo",
+      deploymentTargetId: "second-repo",
+      deploymentRequestDirectory: join(directory, "second-deploy-requests"),
+      validationProfile: "node-nextjs",
+      workspacePreview: "none",
+    },
+  ]);
   const server = createOutpostServer({
     config,
     agent,
     eventStore,
     eventHub,
     resourceMonitor,
-    listRepositories: () => ["amunger/agent-outpost", "amunger/second-repo"],
+    projects,
   });
 
   try {
@@ -163,6 +198,42 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
       "amunger/second-repo",
     ]);
 
+    const projectResponse = await fetch(`${baseUrl}/api/projects`, {
+      headers: { "Tailscale-User-Login": "owner@example.com" },
+    });
+    const projectBody = (await projectResponse.json()) as {
+      projects: Array<{ id: string; name: string; repository: string }>;
+    };
+    assert.deepEqual(projectBody.projects, [
+      { id: "agent-outpost", name: "Agent Outpost", repository: "amunger/agent-outpost" },
+      { id: "second-repo", name: "Second Repo", repository: "amunger/second-repo" },
+    ]);
+    const chatListResponse = await fetch(`${baseUrl}/api/chats`, {
+      headers: { "Tailscale-User-Login": "owner@example.com" },
+    });
+    const chatListBody = (await chatListResponse.json()) as {
+      chats: Array<{ id: string }>;
+    };
+    assert.equal(
+      chatListBody.chats.some(({ id }) => id === "disabled-project-chat"),
+      false,
+    );
+
+    const unregisteredChat = await fetch(`${baseUrl}/api/chats`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Tailscale-User-Login": "owner@example.com",
+        Origin: baseUrl,
+      },
+      body: JSON.stringify({ repository: "amunger/unregistered" }),
+    });
+    assert.equal(unregisteredChat.status, 400);
+    assert.match(
+      ((await unregisteredChat.json()) as { error: string }).error,
+      /not registered/,
+    );
+
     const createdChat = await fetch(`${baseUrl}/api/chats`, {
       method: "POST",
       headers: {
@@ -170,7 +241,7 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
         "Tailscale-User-Login": "owner@example.com",
         Origin: baseUrl,
       },
-      body: JSON.stringify({ repository: "amunger/second-repo" }),
+      body: JSON.stringify({ projectId: "second-repo" }),
     });
     assert.equal(createdChat.status, 201);
     const createdChatBody = (await createdChat.json()) as {
@@ -178,7 +249,7 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
     };
     const chat = createdChatBody.chat;
     assert.equal(chat.repository, "amunger/second-repo");
-    assert.match(chat.projectId, /^github-[0-9a-f]{16}$/);
+    assert.equal(chat.projectId, "second-repo");
     assert.equal(eventStore.listChats().some(({ id }) => id === chat.id), true);
 
     const renamedChat = await fetch(`${baseUrl}/api/chats/${encodeURIComponent(chat.id)}`, {
@@ -298,7 +369,6 @@ test("Concurrent chat switches do not cross-contaminate message routing or histo
     eventStore,
     eventHub,
     resourceMonitor,
-    listRepositories: () => ["amunger/agent-outpost"],
   });
 
   try {

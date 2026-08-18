@@ -29,9 +29,9 @@ export class SseHub {
 
   /**
    * Publishes an event. `chatId` identifies which chat the event belongs to;
-   * pass null for events that are not chat-scoped (e.g. deployment
-   * candidates) so they reach every subscriber. Chat-scoped events are only
-   * delivered to clients registered for that same chat.
+   * pass null only for events that are intentionally global. Chat-scoped
+   * events, including deployment candidates, are delivered only to clients
+   * registered for that same chat.
    */
   public publish(event: OutpostEvent, chatId: string | null = null): void {
     const frame = this.#frame(event);

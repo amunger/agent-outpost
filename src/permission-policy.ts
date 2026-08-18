@@ -7,6 +7,7 @@ import type {
   PermissionRequest,
   PermissionRequestResult,
 } from "@github/copilot-sdk";
+import type { ProjectValidationProfile } from "./project-registry.js";
 
 const allowedUrlHosts = new Set([
   "api.github.com",
@@ -26,7 +27,10 @@ const allowedGitSegments = [
   /^git\s+status(?:\s+--short)?$/i,
   /^git\s+(?:diff|log|show|branch|rev-parse)(?:\s+[-\w./:^=]+)*$/i,
 ];
-const allowedNpmSegment = /^npm\s+(?:ci|install|test|run\s+(?:build|test|typecheck))$/i;
+const allowedNpmSegments: Readonly<Record<ProjectValidationProfile, RegExp>> = {
+  "agent-outpost": /^npm\s+(?:ci|install|test|run\s+(?:build|test|typecheck))$/i,
+  "node-nextjs": /^npm\s+(?:ci|install|test|run\s+(?:build|lint|test))$/i,
+};
 
 function reject(feedback: string): PermissionRequestResult {
   return { kind: "reject", feedback };
@@ -101,6 +105,7 @@ function approvePathRequest(
 function approveShellRequest(
   workspace: string,
   allowedGitRemote: string | undefined,
+  validationProfile: ProjectValidationProfile,
   request: Extract<PermissionRequest, { kind: "shell" }>,
 ): PermissionRequestResult {
   if (forbiddenCommandPatterns.some((pattern) => pattern.test(request.fullCommandText))) {
@@ -117,7 +122,7 @@ function approveShellRequest(
     !segments.every(
       (segment) =>
         allowedGitSegments.some((pattern) => pattern.test(segment)) ||
-        allowedNpmSegment.test(segment),
+        allowedNpmSegments[validationProfile].test(segment),
     )
   ) {
     return reject("Only constrained Git and npm validation commands are allowlisted");
@@ -151,6 +156,7 @@ function approveUrlRequest(
 export function createPermissionHandler(
   workspace: string,
   allowedGitRemote?: string,
+  validationProfile: ProjectValidationProfile = "agent-outpost",
 ): PermissionHandler {
   const canonicalWorkspace = realpathSync(workspace);
 
@@ -167,7 +173,12 @@ export function createPermissionHandler(
       case "write":
         return approvePathRequest(canonicalWorkspace, request);
       case "shell":
-        return approveShellRequest(canonicalWorkspace, allowedGitRemote, request);
+        return approveShellRequest(
+          canonicalWorkspace,
+          allowedGitRemote,
+          validationProfile,
+          request,
+        );
       case "url":
         return approveUrlRequest(request);
       default:

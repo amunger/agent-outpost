@@ -12,6 +12,7 @@ export interface OutpostConfig {
   readonly deploymentRequestDirectory: string;
   readonly artifactDirectory: string;
   readonly publicBaseUrl?: string;
+  readonly projectRegistryPath?: string;
   readonly sessionId: string;
   readonly model: string;
   readonly production: boolean;
@@ -35,14 +36,15 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Outpos
   const allowedGitRemote = environment.OUTPOST_ALLOWED_GIT_REMOTE?.trim();
   const githubRepository = environment.OUTPOST_GITHUB_REPOSITORY?.trim();
   const publicBaseUrl = environment.OUTPOST_PUBLIC_BASE_URL?.trim().replace(/\/+$/, "");
+  const projectRegistryPath = environment.OUTPOST_PROJECT_REGISTRY?.trim();
   const production = environment.NODE_ENV === "production";
   if (production && !allowedTailscaleUser) {
     throw new Error("OUTPOST_ALLOWED_TAILSCALE_USER is required when NODE_ENV=production");
   }
-  if (production && !allowedGitRemote) {
+  if (production && !projectRegistryPath && !allowedGitRemote) {
     throw new Error("OUTPOST_ALLOWED_GIT_REMOTE is required when NODE_ENV=production");
   }
-  if (production && !githubRepository) {
+  if (production && !projectRegistryPath && !githubRepository) {
     throw new Error("OUTPOST_GITHUB_REPOSITORY is required when NODE_ENV=production");
   }
 
@@ -61,6 +63,9 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Outpos
     ),
     artifactDirectory: requiredPath(environment.OUTPOST_ARTIFACT_DIR, "./data/artifacts"),
     ...(publicBaseUrl ? { publicBaseUrl } : {}),
+    ...(projectRegistryPath
+      ? { projectRegistryPath: requiredPath(projectRegistryPath, projectRegistryPath) }
+      : {}),
     sessionId: environment.OUTPOST_SESSION_ID?.trim() || "agent-outpost-main",
     model: environment.OUTPOST_MODEL?.trim() || "auto",
     production,

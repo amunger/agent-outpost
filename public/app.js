@@ -2,7 +2,7 @@ const chatList = document.querySelector("#chat-list");
 const chatView = document.querySelector("#chat-view");
 const chatEntries = document.querySelector("#chat-entries");
 const newChatForm = document.querySelector("#new-chat-form");
-const repositorySelect = document.querySelector("#repository-select");
+const projectSelect = document.querySelector("#project-select");
 const backToChats = document.querySelector("#back-to-chats");
 const chatTitle = document.querySelector("#chat-title");
 const stateElement = document.querySelector("#state");
@@ -33,7 +33,7 @@ assertElement(chatList, "#chat-list");
 assertElement(chatView, "#chat-view");
 assertElement(chatEntries, "#chat-entries");
 assertElement(newChatForm, "#new-chat-form");
-assertElement(repositorySelect, "#repository-select");
+assertElement(projectSelect, "#project-select");
 assertElement(backToChats, "#back-to-chats");
 assertElement(chatTitle, "#chat-title");
 assertElement(stateElement, "#state");
@@ -137,7 +137,7 @@ function appendDeploymentCandidate(candidate) {
   article.dataset.role = "assistant";
   article.dataset.candidateId = candidate.candidateId;
   const title = document.createElement("h2");
-  title.textContent = "Deployment candidate";
+  title.textContent = `${candidate.projectName || "Agent Outpost"} deployment candidate`;
   const description = document.createElement("p");
   description.textContent = candidate.description;
   const summary = document.createElement("p");
@@ -274,7 +274,7 @@ function renderChatEntry(chat) {
   const title = document.createElement("strong");
   title.textContent = chat.name;
   const repository = document.createElement("span");
-  repository.textContent = chat.repository;
+  repository.textContent = `${chat.projectName} · ${chat.repository}`;
   const lastUsed = document.createElement("small");
   lastUsed.textContent = `Last used ${formatLastUsed(chat.lastUsedAt)}`;
   button.append(title, repository, lastUsed);
@@ -315,7 +315,7 @@ function renderChatEntry(chat) {
   remove.title = "Delete chat";
   remove.addEventListener("click", async () => {
     errorElement.textContent = "";
-    if (!confirm(`Delete the chat for ${chat.repository}? This cannot be undone.`)) {
+    if (!confirm(`Delete the ${chat.projectName} chat? This cannot be undone.`)) {
       return;
     }
     try {
@@ -386,11 +386,13 @@ async function loadChats() {
   chatEntries.replaceChildren(...response.chats.map(renderChatEntry));
 }
 
-async function loadRepositories() {
-  const response = await request("/api/repositories");
-  repositorySelect.replaceChildren(
-    new Option("Select a repository", ""),
-    ...response.repositories.map((repository) => new Option(repository, repository)),
+async function loadProjects() {
+  const response = await request("/api/projects");
+  projectSelect.replaceChildren(
+    new Option("Select a project", ""),
+    ...response.projects.map(
+      (project) => new Option(`${project.name} · ${project.repository}`, project.id),
+    ),
   );
 }
 
@@ -431,7 +433,7 @@ async function openChat(chat) {
     return;
   }
   showChatView();
-  chatTitle.textContent = chat.name;
+  chatTitle.textContent = `${chat.name} · ${chat.projectName}`;
   autoScrollTimeline = true;
   const snapshot = await loadSession(chat.id);
   if (generation !== chatViewGeneration || activeChatId !== chat.id) {
@@ -548,16 +550,16 @@ backToChats.addEventListener("click", showChatList);
 newChatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   errorElement.textContent = "";
-  const repository = repositorySelect.value;
-  if (!repository) {
-    errorElement.textContent = "Select a repository first";
+  const projectId = projectSelect.value;
+  if (!projectId) {
+    errorElement.textContent = "Select a project first";
     return;
   }
   try {
     const response = await request("/api/chats", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repository }),
+      body: JSON.stringify({ projectId }),
     });
     await openChat(response.chat);
   } catch (error) {
@@ -565,8 +567,8 @@ newChatForm.addEventListener("submit", async (event) => {
   }
 });
 await loadChats();
-void loadRepositories().catch((error) => {
-  repositorySelect.replaceChildren(new Option("Repositories unavailable", ""));
+void loadProjects().catch((error) => {
+  projectSelect.replaceChildren(new Option("Projects unavailable", ""));
   errorElement.textContent = error instanceof Error ? error.message : String(error);
 });
 loadResources();

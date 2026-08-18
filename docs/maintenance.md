@@ -202,3 +202,10 @@ an external privileged maintenance action after review.
 
 Never give the application general `sudo`, unrestricted `systemctl`, root
 Docker access, or an arbitrary command field in deployment requests.
+
+The Collected Recipes target uses a separate fixed request watcher and rootless
+Podman identities. Its one-time privileged procedure and recovery steps are in
+[Collected Recipes private service](collected-recipes-deployment.md). Routine
+recipe code deployments can use the phone approval workflow after that
+procedure; controller, systemd, Tailscale, Azure, and backup policy changes
+still require external review.

@@ -1,0 +1,18 @@
+[Unit]
+Description=Back up Collected Recipes SQLite to private Azure Blob
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/collected-recipes-backup
+TimeoutStartSec=15min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/collected-recipes/backups
+UMask=0077

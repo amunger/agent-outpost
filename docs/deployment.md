@@ -133,6 +133,13 @@ Production uses `/etc/agent-outpost/agent-outpost.env`. Expected keys:
 
 Do not print values from this file indiscriminately in logs or issues.
 
+An optional `OUTPOST_PROJECT_REGISTRY` points to a root-owned, non-writable
+project registry. It replaces the single repository policy for registered
+project chats while preserving the legacy variables as the no-registry
+compatibility path. See [Collected Recipes private
+service](collected-recipes-deployment.md); do not add recipe paths to this live
+inventory until provisioning and acceptance have actually completed.
+
 ## Branch and revision authority
 
 There are three different revisions to inspect:

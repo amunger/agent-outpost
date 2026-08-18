@@ -1,0 +1,40 @@
+[Unit]
+Description=Collected Recipes private service
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/var/lib/collected-recipes/deployment/active
+
+[Service]
+Type=simple
+User=collected-recipes-runtime
+Group=collected-recipes-runtime
+Environment=HOME=/var/lib/collected-recipes/runtime
+Environment=XDG_RUNTIME_DIR=/run/collected-recipes
+EnvironmentFile=/etc/collected-recipes/collected-recipes.env
+RuntimeDirectory=collected-recipes
+RuntimeDirectoryMode=0700
+ExecStartPre=-/usr/bin/podman rm --force collected-recipes
+ExecStart=/usr/local/libexec/collected-recipes-run
+ExecStopPost=-/usr/bin/podman rm --force collected-recipes
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=120
+TimeoutStopSec=45
+KillMode=mixed
+Delegate=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+LockPersonality=true
+ReadWritePaths=/var/lib/collected-recipes/runtime /var/lib/collected-recipes/data
+MemoryHigh=1152M
+MemoryMax=1536M
+CPUQuota=100%
+IPAddressDeny=169.254.169.254
+IPAddressDeny=100.64.0.0/10
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -73,6 +73,24 @@ test("permission policy rejects interpreters and shell redirection", async () =>
     canOfferSessionApproval: false,
   });
 
+  test("permission policy applies the registered validation profile", async () => {
+    const request = {
+      kind: "shell",
+      fullCommandText: "npm run lint",
+      intention: "Lint the registered project",
+      commands: [{ identifier: "npm", readOnly: false }],
+      commandSegments: [{ identifier: "npm", fullCommandText: "npm run lint" }],
+      possiblePaths: [workspace],
+      possibleUrls: [],
+      hasWriteFileRedirection: false,
+      canOfferSessionApproval: false,
+    } satisfies PermissionRequest;
+
+    assert.equal((await handler(request, invocation)).kind, "reject");
+    const nextHandler = createPermissionHandler(workspace, undefined, "node-nextjs");
+    assert.equal((await nextHandler(request, invocation)).kind, "approve-once");
+  });
+
   test("permission policy allows read-only diff validation", async () => {
     const request = {
       kind: "shell",

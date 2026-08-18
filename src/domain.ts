@@ -34,6 +34,11 @@ export interface OutpostEventPayloads {
   };
   readonly "deployment.candidate": {
     readonly candidateId: string;
+    readonly projectId?: string;
+    readonly projectName?: string;
+    readonly targetId?: string;
+    readonly integrationBranch?: string;
+    readonly chatId?: string;
     readonly commitSha: string;
     readonly description: string;
     readonly files: readonly {

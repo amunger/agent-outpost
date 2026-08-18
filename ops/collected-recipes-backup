@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly database=/var/lib/collected-recipes/data/recipes.db
+readonly backup_directory=/var/lib/collected-recipes/backups
+readonly destination_file=/etc/collected-recipes/backup.env
+readonly metadata_url='http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fstorage.azure.com%2F'
+
+if [[ ${EUID} -ne 0 ]]; then
+  echo "Collected Recipes backup must run as root." >&2
+  exit 1
+fi
+if [[ ! -f "${database}" || -L "${database}" ]]; then
+  echo "Collected Recipes database is missing or invalid." >&2
+  exit 1
+fi
+if [[
+  ! -f "${destination_file}" ||
+  -L "${destination_file}" ||
+  $(stat -c %U "${destination_file}") != root ||
+  $(stat -c %a "${destination_file}") != 600
+]]; then
+  echo "Collected Recipes backup destination is missing or unsafe." >&2
+  exit 1
+fi
+
+destination=$(sed -n 's/^AZURE_BLOB_CONTAINER_URL=//p' "${destination_file}")
+if [[
+  ! "${destination}" =~ ^https://[a-z0-9-]+\.blob\.core\.windows\.net/[a-z0-9-]+$ ||
+  "${destination}" == *\?*
+]]; then
+  echo "AZURE_BLOB_CONTAINER_URL must be a private Azure Blob container URL without credentials." >&2
+  exit 1
+fi
+
+install -d -o root -g root -m 0700 "${backup_directory}"
+timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+backup="${backup_directory}/recipes-${timestamp}.db"
+header_file="${TMPDIR:-/tmp}/collected-recipes-backup-headers-$$"
+
+cleanup() {
+  rm -f -- "${header_file}"
+}
+trap cleanup EXIT
+
+sqlite3 "${database}" ".backup '${backup}'"
+if [[ $(sqlite3 "${backup}" 'PRAGMA quick_check;') != ok ]]; then
+  rm -f -- "${backup}"
+  echo "Collected Recipes backup failed its SQLite integrity check." >&2
+  exit 1
+fi
+chmod 0600 "${backup}"
+
+token_response=$(curl \
+  --fail \
+  --silent \
+  --show-error \
+  --connect-timeout 2 \
+  --max-time 10 \
+  --header Metadata:true \
+  "${metadata_url}")
+access_token=$(jq -er '.access_token' <<< "${token_response}")
+request_date=$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S GMT')
+umask 0077
+printf '%s\n' \
+  "header = \"Authorization: Bearer ${access_token}\"" \
+  "header = \"x-ms-date: ${request_date}\"" \
+  'header = "x-ms-version: 2023-11-03"' \
+  'header = "x-ms-blob-type: BlockBlob"' \
+  'header = "If-None-Match: *"' \
+  > "${header_file}"
+unset access_token token_response
+
+curl \
+  --fail-with-body \
+  --silent \
+  --show-error \
+  --config "${header_file}" \
+  --upload-file "${backup}" \
+  "${destination}/$(basename "${backup}")"
+
+find "${backup_directory}" -type f -name 'recipes-*.db' -mtime +7 -delete
+echo "Uploaded an integrity-checked Collected Recipes backup."

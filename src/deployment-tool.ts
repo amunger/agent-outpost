@@ -14,11 +14,16 @@ interface DeploymentArguments {
 type LatestDeploymentArguments = Record<string, never>;
 
 export interface DeploymentToolOptions {
+  readonly projectId?: string;
+  readonly projectName?: string;
+  readonly targetId?: string;
+  readonly integrationBranch?: string;
+  readonly chatId?: string;
   readonly workspace: string;
   readonly allowedGitRemote: string;
   readonly requestDirectory: string;
   readonly eventStore?: EventStore;
-  readonly eventHub?: { publish(event: OutpostEvent): void };
+  readonly eventHub?: { publish(event: OutpostEvent, chatId?: string | null): void };
 }
 
 const safeGitConfiguration = [
@@ -115,6 +120,11 @@ function scheduleDeployment(
 
 export interface DeploymentCandidate {
   readonly candidateId: string;
+  readonly projectId?: string;
+  readonly projectName?: string;
+  readonly targetId?: string;
+  readonly integrationBranch?: string;
+  readonly chatId?: string;
   readonly commitSha: string;
   readonly description: string;
   readonly files: readonly { readonly path: string; readonly added: number; readonly removed: number }[];
@@ -130,8 +140,8 @@ export function deploymentDiffBase(workspace: string, requestDirectory: string, 
   } catch {
     // Fall back to the candidate's parent when no authoritative deployment state exists.
   }
-  try { return git(workspace, ["rev-parse", `${commitSha}^`]); }
-  catch { return "4b825dc642cb6eb9a060e54bf8d69288fbee4904"; }
+  const [, parent] = git(workspace, ["rev-list", "--parents", "-n", "1", commitSha]).split(" ");
+  return parent ?? "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 }
 
 function candidateDetails(workspace: string, requestDirectory: string, commitSha: string): Omit<DeploymentCandidate, "candidateId"> {
@@ -145,30 +155,48 @@ function candidateDetails(workspace: string, requestDirectory: string, commitSha
 
 function createCandidate(options: DeploymentToolOptions, commitSha: string): unknown {
   if (!options.eventStore) return scheduleDeployment(options.requestDirectory, commitSha, commitSha);
-  const raw = { candidateId: randomUUID(), ...candidateDetails(options.workspace, options.requestDirectory, commitSha) };
+  const raw = {
+    candidateId: randomUUID(),
+    projectId: options.projectId ?? "agent-outpost",
+    projectName: options.projectName ?? "Agent Outpost",
+    targetId: options.targetId ?? "agent-outpost",
+    integrationBranch: options.integrationBranch ?? "agent/current",
+    ...(options.chatId ? { chatId: options.chatId } : {}),
+    ...candidateDetails(options.workspace, options.requestDirectory, commitSha),
+  };
   const diffUrl = raw.diffUrl.replace("{candidateId}", raw.candidateId);
-  const event = options.eventStore.append({ kind: "deployment.candidate", payload: { ...raw, diffUrl, status: "pending" } });
-  options.eventHub?.publish(event);
+  const event = options.eventStore.append(
+    { kind: "deployment.candidate", payload: { ...raw, diffUrl, status: "pending" } },
+    options.chatId ?? null,
+  );
+  options.eventHub?.publish(event, options.chatId ?? null);
   return { status: "candidate", candidate: { ...raw, diffUrl }, message: "Deployment candidate created. Present the approval card to the user; do not deploy until approved." };
 }
 
 export function approveDeploymentCandidate(options: DeploymentToolOptions, candidate: DeploymentCandidate): {
   readonly status: "scheduled"; readonly commitSha: string; readonly message: string;
 } {
+  if (candidate.projectId && candidate.projectId !== (options.projectId ?? "agent-outpost")) {
+    throw new Error("Deployment candidate does not belong to the registered project");
+  }
   assertDeploymentWorkspace(options);
   if (git(options.workspace, ["rev-parse", "HEAD"]) !== candidate.commitSha) throw new Error("Deployment candidate is stale; the checked-out revision changed");
   const result = scheduleDeployment(options.requestDirectory, candidate.commitSha, candidate.commitSha);
-  const event = options.eventStore?.append({ kind: "deployment.candidate", payload: { ...candidate, status: "approved" } });
-  if (event) options.eventHub?.publish(event);
+  const event = options.eventStore?.append(
+    { kind: "deployment.candidate", payload: { ...candidate, status: "approved" } },
+    candidate.chatId ?? options.chatId ?? null,
+  );
+  if (event) options.eventHub?.publish(event, candidate.chatId ?? options.chatId ?? null);
   return result;
 }
 
 function assertDeploymentWorkspace(
   options: DeploymentToolOptions,
 ): void {
+  const integrationBranch = options.integrationBranch ?? "agent/current";
   const branch = git(options.workspace, ["branch", "--show-current"]);
-  if (branch !== "agent/current") {
-    throw new Error(`Deployment is allowed only from agent/current; current branch is ${branch}`);
+  if (branch !== integrationBranch) {
+    throw new Error(`Deployment is allowed only from ${integrationBranch}; current branch is ${branch}`);
   }
   if (git(options.workspace, ["status", "--porcelain=v1"]) !== "") {
     throw new Error("The workspace must be clean before deployment");
@@ -185,14 +213,16 @@ function assertDeploymentWorkspace(
     fetchRemotes[0] !== options.allowedGitRemote ||
     pushRemotes[0] !== options.allowedGitRemote
   ) {
-    throw new Error("The origin fetch and push URLs must exactly match OUTPOST_ALLOWED_GIT_REMOTE");
+    throw new Error("The origin fetch and push URLs must exactly match the registered project remote");
   }
 }
 
 function exactDeploymentTool(options: DeploymentToolOptions): Tool<DeploymentArguments> {
+  const projectName = options.projectName ?? "Agent Outpost";
+  const integrationBranch = options.integrationBranch ?? "agent/current";
   return defineTool<DeploymentArguments>("deploy_agent_outpost", {
     description:
-      "Deploy the exact clean commit currently checked out on agent/current. " +
+      `Deploy the exact clean ${projectName} commit currently checked out on ${integrationBranch}. ` +
       "This is an internal handoff from the typed publisher; never ask the user to provide the SHA.",
     parameters: {
       type: "object",
@@ -202,7 +232,7 @@ function exactDeploymentTool(options: DeploymentToolOptions): Tool<DeploymentArg
         commitSha: {
           type: "string",
           pattern: "^[0-9a-f]{40}$",
-          description: "The full commit SHA already pushed to origin/agent/current.",
+          description: `The full commit SHA already pushed to origin/${integrationBranch}.`,
         },
       },
     },
@@ -223,9 +253,12 @@ function exactDeploymentTool(options: DeploymentToolOptions): Tool<DeploymentArg
 function latestDeploymentTool(
   options: DeploymentToolOptions,
 ): Tool<LatestDeploymentArguments> {
+  const projectName = options.projectName ?? "Agent Outpost";
+  const integrationBranch = options.integrationBranch ?? "agent/current";
+  const remoteBranch = `origin/${integrationBranch}`;
   return defineTool<LatestDeploymentArguments>("deploy_latest_agent_outpost", {
     description:
-      "Resolve and deploy the latest clean origin/agent/current revision. " +
+      `Resolve and deploy the latest clean ${remoteBranch} revision for ${projectName}. ` +
       "Use for plain-language requests such as deploy the latest changes. " +
       "The user does not provide a commit SHA or CI status; the deployment controller runs validation.",
     parameters: {
@@ -237,18 +270,18 @@ function latestDeploymentTool(
     skipPermission: true,
     handler: () => {
       assertDeploymentWorkspace(options);
-      git(options.workspace, ["fetch", "--prune", "origin", "agent/current"]);
+      git(options.workspace, ["fetch", "--prune", "origin", integrationBranch]);
       const head = git(options.workspace, ["rev-parse", "HEAD"]);
-      const remoteHead = git(options.workspace, ["rev-parse", "origin/agent/current"]);
+      const remoteHead = git(options.workspace, ["rev-parse", remoteBranch]);
 
       if (head !== remoteHead) {
         if (!isAncestor(options.workspace, head, remoteHead)) {
           throw new Error(
-            "The local operator branch is ahead of or diverged from origin/agent/current; " +
+            `The local operator branch is ahead of or diverged from ${remoteBranch}; ` +
               "publish or reconcile it before deployment",
           );
         }
-        git(options.workspace, ["merge", "--ff-only", "origin/agent/current"]);
+        git(options.workspace, ["merge", "--ff-only", remoteBranch]);
       }
 
       const commitSha = git(options.workspace, ["rev-parse", "HEAD"]);

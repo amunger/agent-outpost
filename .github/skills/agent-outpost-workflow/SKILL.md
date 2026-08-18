@@ -6,8 +6,9 @@ description: Use when acting as the Agent Outpost operator - publishing, deployi
 # Agent Outpost Operator Workflow
 
 This skill is for the **operator role**: the persistent Copilot session
-running inside Agent Outpost itself, working directly in the deployed
-workspace on behalf of the one developer using the mobile app. Use the typed
+running inside Agent Outpost itself, working directly in the registered
+project workspace selected by the current chat on behalf of the one developer
+using the mobile app. Use the typed
 tools in this procedure. Do not substitute raw `git commit`, `git push`, or
 `gh issue create` shell commands; the shell policy intentionally rejects those
 privileged transitions.
@@ -19,18 +20,22 @@ this codebase without operator tool access).
 
 ## Publish and deploy changes
 
-1. Inspect the workspace and understand all modified and untracked files.
-2. Make the requested edits only inside the configured workspace.
-3. Run validation as separate commands:
-   - `npm run typecheck`
-   - `npm test`
-   - `npm run build`
-4. Call `publish_agent_outpost_changes` with a concise one-line commit subject.
+1. Confirm the chat names the intended registered project. Do not infer project
+   identity from a repository name mentioned only in prose.
+2. Inspect the configured project workspace and understand all modified and
+   untracked files.
+3. Make the requested edits only inside that workspace.
+4. Run the repository's registered validation profile as separate commands:
+   - Agent Outpost: `npm run typecheck`, `npm test`, `npm run build`.
+   - Collected Recipes: `npm test`, `npm run lint`, `npm run build`.
+5. Call `publish_agent_outpost_changes` with a concise one-line commit subject.
    This tool stages all workspace changes, checks the staged diff, creates the
-   required coauthored commit, pushes `agent/current`, and returns `commitSha`.
-5. Call `deploy_agent_outpost` with that exact returned `commitSha`.
-6. Tell the user that deployment was scheduled. The active turn is drained
-   before slot cutover, so send the confirmation immediately.
+   required coauthored commit, pushes the project's registered integration
+   branch, and returns `commitSha`.
+6. Call `deploy_agent_outpost` with that exact returned `commitSha`. This
+   creates a project-labeled deployment candidate; it does not deploy yet.
+7. Tell the user to review and approve the candidate card. Only the approval
+   schedules the registered project's controller.
 
 Example:
 
@@ -39,7 +44,7 @@ publish_agent_outpost_changes({ "message": "Improve mobile composer" })
 → { "status": "published", "commitSha": "0123...abcd" }
 
 deploy_agent_outpost({ "commitSha": "0123...abcd" })
-→ { "status": "scheduled" }
+→ { "status": "candidate" }
 ```
 
 If publishing reports a diverged branch or unexpected remote, stop and report
@@ -48,14 +53,16 @@ the exact error. Never force-push, change the remote, or bypass the sandbox.
 When the user asks in plain language to deploy changes that are already
 published (for example, “deploy the latest changes”), call
 `deploy_latest_agent_outpost` with no arguments. It fetches and resolves the
-current `origin/agent/current` revision internally. Never ask the user to supply
-a commit SHA, confirm the current branch tip, or report CI status. The
-root-owned deployment controller runs the authoritative install, typecheck,
-test, build, and readiness checks.
+current project's registered remote branch internally and creates the same
+approval candidate. Never ask the user to supply a commit SHA, confirm the
+current branch tip, or report CI status. The project-specific root-owned
+deployment controller runs the authoritative validation, build, and readiness
+checks after approval.
 
 ## Create a GitHub issue
 
-Call `create_agent_outpost_issue` with a focused title and Markdown body.
+Call `create_agent_outpost_issue` with a focused title and Markdown body. The
+tool files it only in the current project's registered GitHub repository.
 Include reproduction, expected behavior, actual behavior, and impact when
 reporting a bug.
 
@@ -86,7 +93,8 @@ replacements, existing create targets, and files over their size limits.
 
 ## Capture and share the live UI
 
-Call `capture_agent_outpost_screenshot` with `viewport: "mobile"` for normal
+When the current project exposes screenshot capture, call
+`capture_agent_outpost_screenshot` with `viewport: "mobile"` for normal
 phone validation or `"desktop"` for a wide layout. Set `fullPage: true` only
 when the entire conversation is needed.
 
@@ -99,7 +107,8 @@ the current page.
 
 Use this whenever a phone user asks in plain language to see what a change
 looks like (for example, "show me what the change looks like" or "can I see a
-screenshot").
+screenshot"). If the project does not expose screenshot capture, say so rather
+than attempting to preview another project's files.
 
 ## Verification
 
@@ -107,7 +116,10 @@ screenshot").
 - Exact SHAs are internal tool handoff values, not user inputs.
 - CI is useful operational evidence but is never information the phone user
   must look up before asking for a deployment.
-- After deployment scheduling, do not begin another file-changing task in the
+- A candidate is not scheduled until the user approves its project-labeled
+  card.
+- After deployment approval, do not begin another file-changing task in the
   same turn.
 - A failed candidate is rolled back automatically; report controller failures
-  instead of trying to alter systemd, nginx, or root-owned deployment files.
+  instead of trying to alter Podman, systemd, nginx, Tailscale, or root-owned
+  deployment files.

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "defaultProjectId": "agent-outpost",
+  "projects": [
+    {
+      "id": "agent-outpost",
+      "name": "Agent Outpost",
+      "repository": "amunger/agent-outpost",
+      "workspace": "/srv/agent-outpost/workspace",
+      "allowedGitRemote": "https://github.com/amunger/agent-outpost.git",
+      "integrationBranch": "agent/current",
+      "githubRepository": "amunger/agent-outpost",
+      "deploymentTargetId": "agent-outpost",
+      "deploymentRequestDirectory": "/var/lib/agent-outpost/deploy-requests",
+      "validationProfile": "agent-outpost",
+      "workspacePreview": "static-public"
+    },
+    {
+      "id": "collected-recipes",
+      "name": "Collected Recipes",
+      "repository": "amunger/collected-recipes",
+      "workspace": "/srv/agent-outpost/projects/collected-recipes/workspace",
+      "allowedGitRemote": "https://github.com/amunger/collected-recipes.git",
+      "integrationBranch": "agent/current",
+      "githubRepository": "amunger/collected-recipes",
+      "deploymentTargetId": "collected-recipes",
+      "deploymentRequestDirectory": "/var/lib/collected-recipes/deploy-requests",
+      "validationProfile": "node-nextjs",
+      "workspacePreview": "none"
+    }
+  ]
+}

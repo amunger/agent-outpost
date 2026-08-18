@@ -37,8 +37,10 @@ type CommandRunner = (
 ) => string;
 
 export interface RepositoryToolOptions {
+  readonly projectName?: string;
   readonly workspace: string;
   readonly allowedGitRemote: string;
+  readonly integrationBranch?: string;
   readonly githubRepository: string;
   readonly commandRunner?: CommandRunner;
 }
@@ -107,10 +109,13 @@ function validateIssueArguments(value: unknown): IssueArguments {
 }
 
 function publishTool(options: RepositoryToolOptions, run: CommandRunner): Tool<PublishArguments> {
+  const projectName = options.projectName ?? "Agent Outpost";
+  const integrationBranch = options.integrationBranch ?? "agent/current";
+  const remoteBranch = `origin/${integrationBranch}`;
   return defineTool<PublishArguments>("publish_agent_outpost_changes", {
     description:
-      "Stage all Agent Outpost workspace changes, create a commit with the required " +
-      "Copilot coauthor trailer, and push agent/current. Returns the exact commit SHA to deploy.",
+      `Stage all ${projectName} workspace changes, create a commit with the required ` +
+      `Copilot coauthor trailer, and push ${integrationBranch}. Returns the exact commit SHA to deploy.`,
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -149,19 +154,19 @@ function publishTool(options: RepositoryToolOptions, run: CommandRunner): Tool<P
         gitExitCode(["merge-base", "--is-ancestor", ancestor, descendant]) === 0;
       const rebaseOntoRemote = (): void => {
         try {
-          git(["rebase", "origin/agent/current"]);
+          git(["rebase", remoteBranch]);
         } catch (error) {
           git(["rebase", "--abort"]);
           const message = error instanceof Error ? error.message : String(error);
-          throw new Error(`Could not reconcile with origin/agent/current: ${message}`);
+          throw new Error(`Could not reconcile with ${remoteBranch}: ${message}`);
         }
       };
 
-      if (git(["branch", "--show-current"]) !== "agent/current") {
-        throw new Error("Publishing is allowed only from agent/current");
+      if (git(["branch", "--show-current"]) !== integrationBranch) {
+        throw new Error(`Publishing is allowed only from ${integrationBranch}`);
       }
       if (git(["remote", "get-url", "--push", "origin"]) !== options.allowedGitRemote) {
-        throw new Error("The origin push URL does not match OUTPOST_ALLOWED_GIT_REMOTE");
+        throw new Error("The origin push URL does not match the registered project remote");
       }
       const localConfigKeys = git(["config", "--local", "--includes", "--name-only", "--list"])
         .split(/\r?\n/)
@@ -171,16 +176,16 @@ function publishTool(options: RepositoryToolOptions, run: CommandRunner): Tool<P
         throw new Error(`Publishing is blocked by unsafe local Git configuration: ${unsafeKey}`);
       }
 
-      git(["fetch", "--prune", "origin", "agent/current"]);
+      git(["fetch", "--prune", "origin", integrationBranch]);
       const initialStatus = git(["status", "--porcelain=v1"]);
-      if (!isAncestor("origin/agent/current", "HEAD")) {
+      if (!isAncestor(remoteBranch, "HEAD")) {
         if (initialStatus !== "") {
           throw new Error(
-            "Local agent/current diverged from origin while the workspace has uncommitted changes",
+            `Local ${integrationBranch} diverged from origin while the workspace has uncommitted changes`,
           );
         }
-        if (isAncestor("HEAD", "origin/agent/current")) {
-          git(["merge", "--ff-only", "origin/agent/current"]);
+        if (isAncestor("HEAD", remoteBranch)) {
+          git(["merge", "--ff-only", remoteBranch]);
         } else {
           rebaseOntoRemote();
         }
@@ -197,18 +202,18 @@ function publishTool(options: RepositoryToolOptions, run: CommandRunner): Tool<P
       }
 
       let commitSha = git(["rev-parse", "HEAD"]);
-      const remoteSha = git(["rev-parse", "origin/agent/current"]);
+      const remoteSha = git(["rev-parse", remoteBranch]);
       if (commitSha === remoteSha) {
-        throw new Error("There are no unpublished changes on agent/current");
+        throw new Error(`There are no unpublished changes on ${integrationBranch}`);
       }
       try {
-        git(["push", "origin", "agent/current"]);
+        git(["push", "origin", integrationBranch]);
       } catch {
-        git(["fetch", "--prune", "origin", "agent/current"]);
-        if (!isAncestor("origin/agent/current", "HEAD")) {
+        git(["fetch", "--prune", "origin", integrationBranch]);
+        if (!isAncestor(remoteBranch, "HEAD")) {
           rebaseOntoRemote();
         }
-        git(["push", "origin", "agent/current"]);
+        git(["push", "origin", integrationBranch]);
         commitSha = git(["rev-parse", "HEAD"]);
       }
 
@@ -232,7 +237,7 @@ function publishTool(options: RepositoryToolOptions, run: CommandRunner): Tool<P
 function issueTool(options: RepositoryToolOptions, run: CommandRunner): Tool<IssueArguments> {
   return defineTool<IssueArguments>("create_agent_outpost_issue", {
     description:
-      "Create an issue in the configured Agent Outpost GitHub repository. " +
+      `Create an issue in the configured ${options.projectName ?? "Agent Outpost"} GitHub repository. ` +
       "Use this instead of running gh from the shell.",
     parameters: {
       type: "object",

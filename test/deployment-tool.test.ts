@@ -6,14 +6,20 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { createDeploymentTools } from "../src/deployment-tool.js";
+import { EventStore } from "../src/event-store.js";
+import { SseHub } from "../src/sse-hub.js";
 
 function git(workspace: string, args: readonly string[]): string {
   return execFileSync("git", args, { cwd: workspace, encoding: "utf8" }).trim();
 }
 
-function initializeRepository(root: string, remote: string): string {
+function initializeRepository(
+  root: string,
+  remote: string,
+  branch = "agent/current",
+): string {
   const repository = join(root, "repository");
-  execFileSync("git", ["init", "--initial-branch=agent/current", repository]);
+  execFileSync("git", ["init", `--initial-branch=${branch}`, repository]);
   git(repository, ["config", "user.name", "Test"]);
   git(repository, ["config", "user.email", "test@example.com"]);
   git(repository, ["remote", "add", "origin", remote]);
@@ -22,6 +28,54 @@ function initializeRepository(root: string, remote: string): string {
   git(repository, ["commit", "-m", "Initial"]);
   return repository;
 }
+
+test("deployment candidate records its registered project and branch", async () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-outpost-project-deploy-"));
+  const requests = join(root, "requests");
+  const remote = "https://github.com/amunger/collected-recipes.git";
+  const eventStore = new EventStore(join(root, "data"));
+  const eventHub = new SseHub();
+
+  try {
+    const repository = initializeRepository(root, remote, "recipes/current");
+    const commitSha = git(repository, ["rev-parse", "HEAD"]);
+    const [exact] = createDeploymentTools({
+      projectId: "collected-recipes",
+      projectName: "Collected Recipes",
+      targetId: "collected-recipes",
+      integrationBranch: "recipes/current",
+      chatId: "recipes-chat",
+      workspace: repository,
+      allowedGitRemote: remote,
+      requestDirectory: requests,
+      eventStore,
+      eventHub,
+    });
+
+    await exact.handler?.(
+      { commitSha },
+      {
+        sessionId: "recipes-chat",
+        toolCallId: "project-candidate",
+        toolName: exact.name,
+        arguments: { commitSha },
+      },
+    );
+
+    const candidate = eventStore.listByKind("deployment.candidate").at(-1)?.payload;
+    assert.ok(candidate);
+    assert.equal(candidate.projectId, "collected-recipes");
+    assert.equal(candidate.projectName, "Collected Recipes");
+    assert.equal(candidate.targetId, "collected-recipes");
+    assert.equal(candidate.integrationBranch, "recipes/current");
+    assert.equal(candidate.chatId, "recipes-chat");
+    assert.equal(existsSync(join(requests, "pending")), false);
+  } finally {
+    eventHub.close();
+    eventStore[Symbol.dispose]();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("deployment tool schedules only the exact clean agent/current commit", async () => {
   const root = mkdtempSync(join(tmpdir(), "agent-outpost-deploy-tool-"));

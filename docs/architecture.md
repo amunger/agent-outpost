@@ -82,11 +82,23 @@ shell operations:
 The operator skill maps plain-language intent to these tools. An external
 maintainer should not expect them to exist.
 
+Tool names retain their original Agent Outpost-compatible names, but their
+policy is resolved from the chat's registered project. The root-owned project
+registry fixes the workspace, remote, integration branch, issue repository,
+validation profile, preview capability, deployment target, and request spool.
+The API exposes only registered projects rather than treating every repository
+visible to GitHub CLI as trusted.
+
 `deploy_agent_outpost` carries an exact SHA between internal typed tools.
 `deploy_latest_agent_outpost` is the user-intent entry point for already
 published work: it fetches and fast-forwards a clean operator workspace, then
 submits the resolved SHA to the same controller. Neither SHA nor CI state is a
 required user input.
+
+Chats are bound immutably to one project. Copilot working directories,
+permission handlers, repository tools, and deployment candidates are created
+from that project. Turns that share a project checkout are serialized to prevent
+concurrent edits, while different projects can run independently.
 
 ### Conversation and artifacts
 
@@ -130,6 +142,12 @@ The controller:
 11. Starts and checks the candidate slot.
 12. Updates the atomic active-state record and reloads nginx.
 13. Restores the previous slot automatically if cutover fails.
+
+That transaction describes the Agent Outpost self-deployment adapter.
+Additional projects use separate fixed privileged adapters and state. Collected
+Recipes uses a credential-free rootless image builder, a separate rootless
+runtime identity, candidate health validation, restart-based cutover, and
+exact-image rollback without changing nginx.
 
 At boot, `agent-outpost-active.service` reads the active-state record, rebuilds
 the nginx upstream, and starts the selected slot before nginx serves traffic.

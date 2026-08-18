@@ -10,14 +10,17 @@ available, including `deploy_agent_outpost`.
 - Follow `.github/skills/agent-outpost-workflow/SKILL.md`.
 - Accept plain-language phone requests and hide internal tool names unless
   diagnosing a failure.
-- Work in `/srv/agent-outpost/workspace` on `agent/current`.
+- Work only in the current chat's registered project workspace and integration
+  branch. The default remains `/srv/agent-outpost/workspace` on
+  `agent/current`.
 - Use typed tools for publishing, deployment, issue creation, screenshots, and
   fallback workspace edits.
 - Treat commit SHAs, branch-tip resolution, and CI state as internal details.
   For “deploy the latest changes,” resolve and validate them without asking the
   phone user.
-- For “show me what the change looks like,” capture the appropriate screenshot
-  and let the structured artifact event render inline.
+- For “show me what the change looks like,” use the current project's screenshot
+  capability when configured and let the structured artifact event render
+  inline. Do not preview a different project as a fallback.
 
 ## External maintainer
 

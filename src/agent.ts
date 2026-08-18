@@ -16,6 +16,7 @@ import { createRepositoryTools } from "./repository-tools.js";
 import { createScreenshotTool } from "./screenshot-tool.js";
 import { createWorkspaceTools } from "./workspace-tools.js";
 import { createPermissionHandler } from "./permission-policy.js";
+import { ProjectRegistry, type ProjectDefinition } from "./project-registry.js";
 import { SseHub } from "./sse-hub.js";
 
 export interface AgentController {
@@ -68,6 +69,8 @@ export interface CopilotAgentOptions {
   readonly tailscaleUser?: string;
   readonly eventStore: EventStore;
   readonly eventHub: SseHub;
+  readonly projects?: ProjectRegistry;
+  readonly resolveProjectId?: (chatId: string) => string | undefined;
   readonly client?: CopilotClientAdapter;
 }
 
@@ -81,6 +84,7 @@ function modelId(model: ModelInfo): string | undefined {
 
 interface ChatRuntime {
   readonly session: CopilotSessionAdapter;
+  readonly projectId: string;
   state: AgentState;
   activeTurn?: Promise<void>;
   unsubscribe?: () => void;
@@ -99,8 +103,11 @@ export class CopilotAgent implements AgentController {
   readonly #tailscaleUser: string | undefined;
   readonly #eventStore: EventStore;
   readonly #eventHub: SseHub;
+  readonly #projects: ProjectRegistry | undefined;
+  readonly #resolveProjectId: ((chatId: string) => string | undefined) | undefined;
   readonly #runtimes = new Map<string, ChatRuntime>();
   readonly #startingRuntimes = new Map<string, Promise<ChatRuntime>>();
+  readonly #activeProjectTurns = new Map<string, string>();
   #startupState: AgentState = "starting";
 
   public constructor(options: CopilotAgentOptions) {
@@ -116,6 +123,8 @@ export class CopilotAgent implements AgentController {
     this.#tailscaleUser = options.tailscaleUser;
     this.#eventStore = options.eventStore;
     this.#eventHub = options.eventHub;
+    this.#projects = options.projects;
+    this.#resolveProjectId = options.resolveProjectId;
   }
 
   public get state(): AgentState {
@@ -185,26 +194,46 @@ export class CopilotAgent implements AgentController {
       throw new Error("Copilot session is not ready");
     }
     const resolvedChatId = chatId ?? this.#sessionId;
-    const runtime = await this.#ensureRuntime(resolvedChatId);
-    if (runtime.activeTurn) {
-      throw new Error("This chat is already processing a message");
+    const project = this.#projectForChat(resolvedChatId);
+    const activeProjectChat = this.#activeProjectTurns.get(project.id);
+    if (activeProjectChat) {
+      throw new Error(
+        activeProjectChat === resolvedChatId
+          ? "This chat is already processing a message"
+          : `${project.name} is already processing a message in another chat`,
+      );
     }
+    this.#activeProjectTurns.set(project.id, resolvedChatId);
 
-    this.#publishStored(
-      this.#eventStore.append(
-        { kind: "user.message", payload: { content: message } },
-        resolvedChatId,
-      ),
-      resolvedChatId,
-    );
-    this.#setState(runtime, resolvedChatId, "running");
-    const activeTurn = this.#processTurn(runtime, message, resolvedChatId);
-    runtime.activeTurn = activeTurn;
-    void activeTurn.finally(() => {
-      if (runtime.activeTurn === activeTurn) {
-        delete runtime.activeTurn;
+    try {
+      const runtime = await this.#ensureRuntime(resolvedChatId);
+      if (runtime.activeTurn) {
+        throw new Error("This chat is already processing a message");
       }
-    });
+      this.#publishStored(
+        this.#eventStore.append(
+          { kind: "user.message", payload: { content: message } },
+          resolvedChatId,
+        ),
+        resolvedChatId,
+      );
+      this.#setState(runtime, resolvedChatId, "running");
+      const activeTurn = this.#processTurn(runtime, message, resolvedChatId);
+      runtime.activeTurn = activeTurn;
+      void activeTurn.finally(() => {
+        if (runtime.activeTurn === activeTurn) {
+          delete runtime.activeTurn;
+        }
+        if (this.#activeProjectTurns.get(project.id) === resolvedChatId) {
+          this.#activeProjectTurns.delete(project.id);
+        }
+      });
+    } catch (error) {
+      if (this.#activeProjectTurns.get(project.id) === resolvedChatId) {
+        this.#activeProjectTurns.delete(project.id);
+      }
+      throw error;
+    }
   }
 
   public async cancel(chatId: string | null): Promise<void> {
@@ -243,6 +272,7 @@ export class CopilotAgent implements AgentController {
       ),
     );
     this.#runtimes.clear();
+    this.#activeProjectTurns.clear();
 
     errors.push(...await this.#client.stop());
     if (errors.length > 0) {
@@ -343,27 +373,35 @@ export class CopilotAgent implements AgentController {
   }
 
   async #createRuntime(chatId: string): Promise<ChatRuntime> {
+    const project = this.#projectForChat(chatId);
     const deploymentTools =
-      this.#allowedGitRemote === undefined
+      project.allowedGitRemote === undefined
         ? []
         : createDeploymentTools({
-            workspace: this.#workspace,
-            allowedGitRemote: this.#allowedGitRemote,
-            requestDirectory: this.#deploymentRequestDirectory,
+            projectId: project.id,
+            projectName: project.name,
+            targetId: project.deploymentTargetId,
+            integrationBranch: project.integrationBranch,
+            chatId,
+            workspace: project.workspace,
+            allowedGitRemote: project.allowedGitRemote,
+            requestDirectory: project.deploymentRequestDirectory,
             eventStore: this.#eventStore,
             eventHub: this.#eventHub,
           });
     const repositoryTools =
-      this.#allowedGitRemote === undefined || this.#githubRepository === undefined
+      project.allowedGitRemote === undefined || project.githubRepository === undefined
         ? []
         : createRepositoryTools({
-            workspace: this.#workspace,
-            allowedGitRemote: this.#allowedGitRemote,
-            githubRepository: this.#githubRepository,
+            projectName: project.name,
+            workspace: project.workspace,
+            allowedGitRemote: project.allowedGitRemote,
+            integrationBranch: project.integrationBranch,
+            githubRepository: project.githubRepository,
           });
-    const workspaceTools = createWorkspaceTools(this.#workspace);
+    const workspaceTools = createWorkspaceTools(project.workspace);
     const screenshotTools =
-      this.#tailscaleUser === undefined
+      this.#tailscaleUser === undefined || project.workspacePreview === "none"
         ? []
         : [
             createScreenshotTool({
@@ -372,38 +410,47 @@ export class CopilotAgent implements AgentController {
               ...(this.#publicBaseUrl ? { publicBaseUrl: this.#publicBaseUrl } : {}),
               eventStore: this.#eventStore,
               eventHub: this.#eventHub,
-              workspacePublicDirectory: join(this.#workspace, "public"),
+              workspacePublicDirectory: join(project.workspace, "public"),
               chatId,
             }),
           ];
-    const commonConfig = {
-      clientName: "agent-outpost",
-      workingDirectory: this.#workspace,
-      model: this.#model,
-      ...(this.#model !== "auto" ? { reasoningEffort: "medium" as const } : {}),
-      streaming: true,
-      enableExperimentalMode: true,
-      enableConfigDiscovery: true,
-      onPermissionRequest: createPermissionHandler(this.#workspace, this.#allowedGitRemote),
-      tools: [...deploymentTools, ...repositoryTools, ...workspaceTools, ...screenshotTools],
-      systemMessage: {
-        mode: "append" as const,
-        content:
-          "You are running in Agent Outpost for one developer. Work only inside the configured workspace. " +
-          "Run the repository's existing checks before publishing. " +
-          "Never force-push, change credentials, access production secrets, or make system-level changes. " +
-          "Use publish_agent_outpost_changes instead of shell git commit or push commands. " +
-          "Publishing requires the agent/current branch. If a typed tool returns status blocked, report its " +
-          "error and do not retry until the cause is resolved. " +
-          "Use create_agent_outpost_issue instead of the gh shell command. " +
-          "If apply_patch is unavailable, use replace_workspace_text or create_workspace_file. " +
-          "Use capture_agent_outpost_screenshot with source workspace to validate unpublished UI changes, " +
+    const screenshotInstructions =
+      project.workspacePreview === "static-public"
+        ? "Use capture_agent_outpost_screenshot with source workspace to validate unpublished UI changes, " +
           "including click, fill, scroll, and assertScroll browser actions, before publishing. " +
           "Use source deployed for the current live UI; it safely permits chat navigation and timeline " +
           "scrolling but rejects fill and mutation-capable selectors. " +
           "For conversation scrolling, open .chat-entry and assert #timeline at bottom; scroll it to top, " +
           "click #scroll-to-bottom, and assert #timeline at bottom again. It publishes the image directly into " +
-          "the conversation, so do not repeat the artifact URL as plain text. " +
+          "the conversation, so do not repeat the artifact URL as plain text. "
+        : "Workspace screenshot capture is not configured for this project; do not claim to have captured one. ";
+    const commonConfig = {
+      clientName: "agent-outpost",
+      workingDirectory: project.workspace,
+      model: this.#model,
+      ...(this.#model !== "auto" ? { reasoningEffort: "medium" as const } : {}),
+      streaming: true,
+      enableExperimentalMode: true,
+      enableConfigDiscovery: true,
+      onPermissionRequest: createPermissionHandler(
+        project.workspace,
+        project.allowedGitRemote,
+        project.validationProfile,
+      ),
+      tools: [...deploymentTools, ...repositoryTools, ...workspaceTools, ...screenshotTools],
+      systemMessage: {
+        mode: "append" as const,
+        content:
+          `You are running in Agent Outpost for one developer on the registered ${project.name} project. ` +
+           "Work only inside the configured project workspace. " +
+          "Run the repository's existing checks before publishing. " +
+          "Never force-push, change credentials, access production secrets, or make system-level changes. " +
+          "Use publish_agent_outpost_changes instead of shell git commit or push commands. " +
+          `Publishing requires the ${project.integrationBranch} branch. If a typed tool returns status blocked, report its ` +
+          "error and do not retry until the cause is resolved. " +
+          "Use create_agent_outpost_issue instead of the gh shell command. " +
+          "If apply_patch is unavailable, use replace_workspace_text or create_workspace_file. " +
+          screenshotInstructions +
           "After publishing changes, call deploy_agent_outpost internally with the returned commit SHA; this creates " +
           "a Deployment candidate approval card and does not deploy. Never claim deployment is scheduled until the " +
           "user approves that card. For a plain-language request to deploy existing latest changes, call deploy_latest_agent_outpost without " +
@@ -419,7 +466,7 @@ export class CopilotAgent implements AgentController {
           sessionId: chatId,
           model: this.#model,
         });
-    const runtime: ChatRuntime = { session, state: "starting" };
+    const runtime: ChatRuntime = { session, projectId: project.id, state: "starting" };
     this.#runtimes.set(chatId, runtime);
     runtime.unsubscribe = session.on((event) => {
       this.#handleSessionEvent(runtime, chatId, event);
@@ -430,5 +477,38 @@ export class CopilotAgent implements AgentController {
 
   #publishStored(event: OutpostEvent, chatId: string | null): void {
     this.#eventHub.publish(event, chatId);
+  }
+
+  #projectForChat(chatId: string): ProjectDefinition | {
+    readonly id: string;
+    readonly name: string;
+    readonly workspace: string;
+    readonly integrationBranch: string;
+    readonly deploymentTargetId: string;
+    readonly deploymentRequestDirectory: string;
+    readonly validationProfile: "agent-outpost";
+    readonly workspacePreview: "static-public";
+    readonly allowedGitRemote?: string;
+    readonly githubRepository?: string;
+  } {
+    if (this.#projects) {
+      const projectId = this.#resolveProjectId?.(chatId);
+      if (!projectId) {
+        throw new Error(`Chat is not associated with a registered project: ${chatId}`);
+      }
+      return this.#projects.require(projectId);
+    }
+    return {
+      id: "agent-outpost",
+      name: "Agent Outpost",
+      workspace: this.#workspace,
+      integrationBranch: "agent/current",
+      deploymentTargetId: "agent-outpost",
+      deploymentRequestDirectory: this.#deploymentRequestDirectory,
+      validationProfile: "agent-outpost",
+      workspacePreview: "static-public",
+      ...(this.#allowedGitRemote ? { allowedGitRemote: this.#allowedGitRemote } : {}),
+      ...(this.#githubRepository ? { githubRepository: this.#githubRepository } : {}),
+    };
   }
 }

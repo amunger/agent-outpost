@@ -30,6 +30,18 @@ test("loadConfig requires an allowed Git remote in production", () => {
   );
 });
 
+test("loadConfig permits project registry policy in production", () => {
+  const config = loadConfig({
+    NODE_ENV: "production",
+    OUTPOST_ALLOWED_TAILSCALE_USER: "owner@example.com",
+    OUTPOST_PROJECT_REGISTRY: "./projects.json",
+  });
+
+  assert.match(config.projectRegistryPath ?? "", /projects\.json$/);
+  assert.equal(config.allowedGitRemote, undefined);
+  assert.equal(config.githubRepository, undefined);
+});
+
 test("loadConfig requires a GitHub repository in production", () => {
   assert.throws(
     () =>

@@ -1,0 +1,320 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly workspace=/srv/agent-outpost/projects/collected-recipes/workspace
+readonly expected_remote=https://github.com/amunger/collected-recipes.git
+readonly integration_branch=agent/current
+readonly request_directory=/var/lib/collected-recipes/deploy-requests
+readonly pending_request="${request_directory}/pending"
+readonly deployment_directory=/var/lib/collected-recipes/deployment
+readonly processing_request="${deployment_directory}/processing"
+readonly active_state="${deployment_directory}/active"
+readonly operator_build_root=/var/lib/collected-recipes/operator-builds
+readonly build_root=/var/lib/collected-recipes/builds
+readonly image_root=/var/lib/collected-recipes/images
+readonly build_home=/var/lib/collected-recipes/build-home
+readonly runtime_home=/var/lib/collected-recipes/runtime
+readonly build_runtime=/run/collected-recipes-build
+readonly runtime_runtime=/run/collected-recipes
+readonly runtime_environment=/etc/collected-recipes/collected-recipes.env
+readonly outpost_entrypoint=http://127.0.0.1:3000/ready
+
+exec 9>/run/lock/collected-recipes-deploy.lock
+flock -n 9 || exit 0
+
+install -d -o collected-recipes-build -g collected-recipes-build -m 0700 \
+  "${build_runtime}"
+install -d -o collected-recipes-runtime -g collected-recipes-runtime -m 0700 \
+  "${runtime_runtime}"
+
+if [[
+  ! -f "${runtime_environment}" ||
+  -L "${runtime_environment}" ||
+  $(stat -c %U "${runtime_environment}") != root ||
+  $(stat -c %a "${runtime_environment}") != 600 ||
+  $(grep -Ec '^COPILOT_GITHUB_TOKEN=.+$' "${runtime_environment}") -ne 1 ||
+  $(grep -Ec '^FDC_API_KEY=.+$' "${runtime_environment}") -ne 1 ||
+  $(grep -Ec '^RECIPE_PUBLIC_BASE_URL=https://[^/]+$' "${runtime_environment}") -ne 1 ||
+  $(grep -Ec '^RECIPE_REQUIRE_TAILSCALE_IDENTITY=true$' "${runtime_environment}") -ne 1
+]]; then
+  echo "Collected Recipes runtime configuration is missing or unsafe." >&2
+  exit 1
+fi
+
+if [[ ! -e "${pending_request}" && ! -L "${pending_request}" ]]; then
+  exit 0
+fi
+if [[ ! -f "${pending_request}" || -L "${pending_request}" ]]; then
+  rm -f -- "${pending_request}"
+  echo "Deployment request must be a regular, non-symlink file." >&2
+  exit 1
+fi
+if [[
+  $(stat -c %s "${pending_request}") -gt 64 ||
+  $(stat -c %U "${pending_request}") != agent-outpost
+]]; then
+  rm -f -- "${pending_request}"
+  echo "Deployment request has an invalid size or owner." >&2
+  exit 1
+fi
+
+rm -f -- "${processing_request}"
+mv -T "${pending_request}" "${processing_request}"
+requested_revision=$(tr -d '\r\n' < "${processing_request}")
+rm -f -- "${processing_request}"
+if [[ ! "${requested_revision}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Deployment request must contain one exact commit SHA." >&2
+  exit 1
+fi
+
+wait_outpost_idle() {
+  for _ in {1..900}; do
+    if curl --fail --silent "${outpost_entrypoint}" | grep -q '"state":"idle"'; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+if ! wait_outpost_idle; then
+  echo "Agent Outpost did not become idle before the recipe deployment timeout." >&2
+  exit 1
+fi
+
+available_memory_kib=$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo)
+if [[ "${available_memory_kib}" -lt 2000000 ]]; then
+  echo "Recipe deployment requires at least 2 GB of currently available VM memory." >&2
+  exit 1
+fi
+
+run_agent() {
+  runuser -u agent-outpost -- env \
+    GIT_EDITOR=true \
+    GIT_SEQUENCE_EDITOR=true \
+    GIT_TERMINAL_PROMPT=0 \
+    "$@"
+}
+
+git_agent() {
+  run_agent git \
+    -c core.hooksPath=/dev/null \
+    -c core.fsmonitor=false \
+    -c diff.external= \
+    -c core.pager=cat \
+    -C "${workspace}" \
+    "$@"
+}
+
+mapfile -t fetch_remotes < <(git_agent remote get-url --all origin)
+mapfile -t push_remotes < <(git_agent remote get-url --all --push origin)
+if [[
+  ${#fetch_remotes[@]} -ne 1 ||
+  ${#push_remotes[@]} -ne 1 ||
+  "${fetch_remotes[0]}" != "${expected_remote}" ||
+  "${push_remotes[0]}" != "${expected_remote}"
+]]; then
+  echo "Collected Recipes origin does not match the allowlisted remote." >&2
+  exit 1
+fi
+
+unsafe_config=$(git_agent config --local --includes --name-only --list |
+  grep -Ei '^(alias\.|core\.(attributesfile|fsmonitor|hookspath|sshcommand)|credential\.|diff\.external|filter\.|include(if)?\.|merge\..*\.driver|url\.)' |
+  head -n 1 || true)
+if [[ -n "${unsafe_config}" ]]; then
+  echo "Unsafe local Git configuration blocks deployment: ${unsafe_config}" >&2
+  exit 1
+fi
+
+git_agent fetch --prune origin "${integration_branch}"
+remote_sha=$(git_agent rev-parse "origin/${integration_branch}")
+if [[ "${requested_revision}" != "${remote_sha}" ]]; then
+  echo "Requested commit is not the current origin/${integration_branch} revision." >&2
+  exit 1
+fi
+commit_sha="${requested_revision}"
+
+operator_build="${operator_build_root}/${commit_sha}"
+build_directory="${build_root}/${commit_sha}"
+archive="${image_root}/${commit_sha}.oci"
+
+cleanup() {
+  set +e
+  runuser -u collected-recipes-build -- env \
+    HOME="${build_home}" \
+    XDG_RUNTIME_DIR="${build_runtime}" \
+    podman image rm "localhost/collected-recipes:${commit_sha}" >/dev/null 2>&1
+  runuser -u collected-recipes-runtime -- env \
+    HOME="${runtime_home}" \
+    XDG_RUNTIME_DIR="${runtime_runtime}" \
+    podman rm --force collected-recipes-candidate >/dev/null 2>&1
+  git_agent worktree remove --force "${operator_build}" >/dev/null 2>&1
+  rm -rf --one-file-system -- "${build_directory}"
+  rm -f -- "${archive}"
+}
+trap cleanup EXIT
+
+git_agent worktree remove --force "${operator_build}" >/dev/null 2>&1 || true
+rm -rf --one-file-system -- "${operator_build}" "${build_directory}"
+git_agent worktree add --detach "${operator_build}" "${commit_sha}"
+if find "${operator_build}" -type l -print -quit | grep -q .; then
+  echo "Repository symlinks are not allowed in a deployment build." >&2
+  exit 1
+fi
+
+install -d -o collected-recipes-build -g collected-recipes-build -m 0700 \
+  "${build_directory}"
+rsync -a --delete \
+  --exclude .git \
+  --chown=collected-recipes-build:collected-recipes-build \
+  "${operator_build}/" "${build_directory}/"
+
+run_build() {
+  systemd-run \
+    --quiet \
+    --wait \
+    --pipe \
+    --collect \
+    --uid=collected-recipes-build \
+    --gid=collected-recipes-build \
+    --setenv="HOME=${build_home}" \
+    --setenv="XDG_RUNTIME_DIR=${build_runtime}" \
+    --property=Delegate=true \
+    --property=PrivateTmp=true \
+    --property=IPAddressDeny=localhost \
+    --property=IPAddressDeny=100.64.0.0/10 \
+    --property=IPAddressDeny=169.254.169.254 \
+    --property=CPUQuota=100% \
+    --property=MemoryHigh=1600M \
+    --property=MemoryMax=1900M \
+    "$@"
+}
+
+run_build podman build \
+  --pull=newer \
+  --tag "localhost/collected-recipes:${commit_sha}" \
+  "${build_directory}"
+run_build podman save \
+  --format oci-archive \
+  --output "${archive}" \
+  "localhost/collected-recipes:${commit_sha}"
+
+chown collected-recipes-runtime:collected-recipes-runtime "${archive}"
+chmod 0600 "${archive}"
+
+run_runtime() {
+  runuser -u collected-recipes-runtime -- env \
+    HOME="${runtime_home}" \
+    XDG_RUNTIME_DIR="${runtime_runtime}" \
+    "$@"
+}
+
+run_runtime podman load --input "${archive}"
+image_id=$(run_runtime podman image inspect \
+  --format '{{.Id}}' \
+  "localhost/collected-recipes:${commit_sha}")
+if [[ ! "${image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  echo "Podman did not return an immutable image identifier." >&2
+  exit 1
+fi
+
+run_runtime podman rm --force collected-recipes-candidate >/dev/null 2>&1 || true
+run_runtime podman run \
+  --detach \
+  --name collected-recipes-candidate \
+  --userns=keep-id:uid=1000,gid=1000 \
+  --read-only \
+  --cap-drop=all \
+  --security-opt=no-new-privileges \
+  --pids-limit=256 \
+  --memory=1280m \
+  --memory-swap=1536m \
+  --cpus=1 \
+  --network slirp4netns:allow_host_loopback=false \
+  --publish 127.0.0.1:3101:3000 \
+  --tmpfs /tmp:rw,size=256m,mode=1777,noexec,nosuid,nodev \
+  --tmpfs /app/.next/cache:rw,size=64m,mode=1777,noexec,nosuid,nodev \
+  --tmpfs /data:rw,size=32m,mode=0700,uid=1000,gid=1000,nosuid,nodev \
+  --env RECIPE_DATABASE_PATH=/data/recipes.db \
+  "${image_id}"
+
+candidate_ready=false
+for _ in {1..90}; do
+  if curl --fail --silent http://127.0.0.1:3101/api/health >/dev/null; then
+    candidate_ready=true
+    break
+  fi
+  sleep 1
+done
+run_runtime podman rm --force collected-recipes-candidate >/dev/null
+if [[ "${candidate_ready}" != true ]]; then
+  echo "Collected Recipes candidate did not become healthy." >&2
+  exit 1
+fi
+
+previous_commit=
+previous_image=
+if [[ -f "${active_state}" && ! -L "${active_state}" ]]; then
+  read -r previous_commit previous_image extra < "${active_state}"
+  if [[
+    ! "${previous_commit}" =~ ^[0-9a-f]{40}$ ||
+    ! "${previous_image}" =~ ^sha256:[0-9a-f]{64}$ ||
+    -n "${extra:-}"
+  ]]; then
+    echo "Existing Collected Recipes active state is invalid." >&2
+    exit 1
+  fi
+fi
+
+atomic_write_state() {
+  printf '%s %s\n' "$1" "$2" > "${active_state}.next"
+  mv -Tf "${active_state}.next" "${active_state}"
+}
+
+wait_stable_health() {
+  for _ in {1..90}; do
+    if curl --fail --silent http://127.0.0.1:3100/api/health >/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+atomic_write_state "${commit_sha}" "${image_id}"
+if systemctl restart collected-recipes.service && wait_stable_health; then
+  systemctl enable collected-recipes.service
+  while read -r stored_image; do
+    if [[
+      -n "${stored_image}" &&
+      "${stored_image}" != "${image_id}" &&
+      "${stored_image}" != "${previous_image}"
+    ]]; then
+      run_runtime podman image rm "${stored_image}" >/dev/null 2>&1 || true
+    fi
+  done < <(
+    run_runtime podman images \
+      --format '{{.Id}}' \
+      localhost/collected-recipes
+  )
+  echo "Activated Collected Recipes ${commit_sha}."
+  exit 0
+fi
+
+echo "Collected Recipes cutover failed; restoring the previous image." >&2
+if [[ -n "${previous_commit}" && -n "${previous_image}" ]]; then
+  atomic_write_state "${previous_commit}" "${previous_image}"
+  systemctl restart collected-recipes.service
+  if wait_stable_health; then
+    if [[ "${image_id}" != "${previous_image}" ]]; then
+      run_runtime podman image rm "${image_id}" >/dev/null 2>&1 || true
+    fi
+    exit 1
+  fi
+  echo "The previous Collected Recipes image also failed health checks." >&2
+else
+  rm -f -- "${active_state}"
+  systemctl stop collected-recipes.service || true
+  run_runtime podman image rm "${image_id}" >/dev/null 2>&1 || true
+fi
+exit 1

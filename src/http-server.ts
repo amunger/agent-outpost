@@ -1,5 +1,5 @@
 import { closeSync, constants, createReadStream, fstatSync, openSync } from "node:fs";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { access, realpath } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -11,6 +11,10 @@ import type { AgentState } from "./domain.js";
 import { EventStore, type StoredChat } from "./event-store.js";
 import { ResourceMonitor } from "./resource-monitor.js";
 import { SseHub } from "./sse-hub.js";
+import {
+  ProjectRegistry,
+  type ProjectDefinition,
+} from "./project-registry.js";
 import {
   approveDeploymentCandidate,
   deploymentDiffBase,
@@ -31,7 +35,8 @@ interface MessageBody {
 }
 
 interface ChatCreateBody {
-  readonly repository: string;
+  readonly projectId?: string;
+  readonly repository?: string;
 }
 
 interface ChatRenameBody {
@@ -45,16 +50,12 @@ interface ModelBody {
 interface ChatRecord {
   readonly id: string;
   readonly projectId: string;
+  readonly projectName: string;
   readonly name: string;
   readonly repository: string;
   readonly createdAt: string;
   lastUsedAt: string | null;
   state: AgentState;
-}
-
-function repositoryLabel(value: string): string {
-  const match = value.match(/github\.com[/:]([^/]+\/[^/.]+)(?:\.git)?$/i);
-  return match?.[1] ?? value;
 }
 
 function parseModelBody(value: unknown): ModelBody {
@@ -69,19 +70,30 @@ function parseModelBody(value: unknown): ModelBody {
 }
 
 function parseChatCreateBody(value: unknown): ChatCreateBody {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("repository" in value) ||
-    typeof value.repository !== "string"
-  ) {
-    throw new Error("Request body must contain a string repository field");
+  if (typeof value !== "object" || value === null) {
+    throw new Error("Request body must select a registered project");
   }
-  const repository = value.repository.trim();
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
+  const projectId =
+    "projectId" in value && typeof value.projectId === "string"
+      ? value.projectId.trim()
+      : undefined;
+  const repository =
+    "repository" in value && typeof value.repository === "string"
+      ? value.repository.trim()
+      : undefined;
+  if (projectId && !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(projectId)) {
+    throw new Error("Project ID is invalid");
+  }
+  if (repository && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
     throw new Error("Repository must use owner/name format");
   }
-  return { repository };
+  if (!projectId && !repository) {
+    throw new Error("Request body must select a registered project");
+  }
+  return {
+    ...(projectId ? { projectId } : {}),
+    ...(repository ? { repository } : {}),
+  };
 }
 
 function parseChatRenameBody(value: unknown): ChatRenameBody {
@@ -98,38 +110,6 @@ function parseChatRenameBody(value: unknown): ChatRenameBody {
     throw new Error("Chat name must be between 1 and 100 characters");
   }
   return { name };
-}
-
-function listOwnedRepositories(owner: string): string[] {
-  const output = execFileSync(
-    "gh",
-    ["repo", "list", owner, "--json", "nameWithOwner", "--limit", "1000", "--no-archived"],
-    { encoding: "utf8", timeout: 30_000 },
-  );
-  const value: unknown = JSON.parse(output);
-  if (!Array.isArray(value)) {
-    throw new Error("GitHub CLI returned an invalid repository list");
-  }
-  return value
-    .flatMap((entry) =>
-      typeof entry === "object" &&
-      entry !== null &&
-      "nameWithOwner" in entry &&
-      typeof entry.nameWithOwner === "string"
-        ? [entry.nameWithOwner]
-        : [],
-    )
-    .filter((repository) => repository.startsWith(`${owner}/`))
-    .sort((left, right) => left.localeCompare(right));
-}
-
-function repositoryOwner(repository: string | undefined): string | undefined {
-  return repository?.match(/^([^/]+)\//)?.[1];
-}
-
-function projectIdForRepository(repository: string): string {
-  const digest = createHash("sha256").update(repository.toLowerCase()).digest("hex").slice(0, 16);
-  return `github-${digest}`;
 }
 
 function setSecurityHeaders(response: ServerResponse): void {
@@ -282,6 +262,11 @@ export function createWorkspacePreviewServer(publicDirectory: string): Server {
       createdAt: new Date(30_000).toISOString(),
       payload: {
         candidateId: "11111111-1111-4111-8111-111111111111",
+        projectId: "agent-outpost",
+        projectName: "Agent Outpost",
+        targetId: "agent-outpost",
+        integrationBranch: "agent/current",
+        chatId: "workspace-preview",
         commitSha: "0123456789abcdef0123456789abcdef01234567",
         description: "Preview deployment candidate",
         files: [
@@ -314,9 +299,24 @@ export function createWorkspacePreviewServer(publicDirectory: string): Server {
           chats: [
             {
               id: "workspace-preview",
+              projectId: "agent-outpost",
+              projectName: "Agent Outpost",
               name: "Workspace preview",
               repository: basename(join(publicDirectory, "..")),
               lastUsedAt: new Date(0).toISOString(),
+            },
+          ],
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/projects") {
+        sendJson(response, 200, {
+          projects: [
+            {
+              id: "agent-outpost",
+              name: "Agent Outpost",
+              repository: basename(join(publicDirectory, "..")),
             },
           ],
         });
@@ -415,30 +415,55 @@ export interface HttpServerDependencies {
   readonly eventStore: EventStore;
   readonly eventHub: SseHub;
   readonly resourceMonitor: ResourceMonitor;
-  readonly listRepositories?: (owner: string) => readonly string[];
+  readonly projects?: ProjectRegistry;
 }
 
 export function createOutpostServer(dependencies: HttpServerDependencies) {
   const { config, agent, eventStore, eventHub, resourceMonitor } = dependencies;
-  const listRepositories = dependencies.listRepositories ?? listOwnedRepositories;
-  const owner = repositoryOwner(config.githubRepository);
+  const legacyProject: ProjectDefinition = {
+    id: "agent-outpost",
+    name: "Agent Outpost",
+    repository: config.githubRepository ?? "local/agent-outpost",
+    workspace: config.workspace,
+    ...(config.allowedGitRemote ? { allowedGitRemote: config.allowedGitRemote } : {}),
+    integrationBranch: "agent/current",
+    ...(config.githubRepository ? { githubRepository: config.githubRepository } : {}),
+    deploymentTargetId: "agent-outpost",
+    deploymentRequestDirectory: config.deploymentRequestDirectory,
+    validationProfile: "agent-outpost",
+    workspacePreview: "static-public",
+  };
+  const projects = dependencies.projects ?? new ProjectRegistry(legacyProject.id, [legacyProject]);
+  const defaultProject = projects.defaultProject;
   const lastDeploymentAt = new Date().toISOString();
-  const initialRepository = repositoryLabel(config.allowedGitRemote ?? basename(config.workspace));
   eventStore.adoptLegacyEvents(config.sessionId);
+  eventStore.adoptLegacyProjects(
+    defaultProject.id,
+    defaultProject.repository,
+  );
   eventStore.ensureChat({
     id: config.sessionId,
-    projectId: projectIdForRepository(initialRepository),
+    projectId: defaultProject.id,
     name: "Mobile agent",
-    repository: initialRepository,
+    repository: defaultProject.repository,
     lastUsedAt: eventStore.list({ chatId: config.sessionId }).at(-1)?.createdAt ?? null,
   });
-  const chatRecord = (chat: StoredChat): ChatRecord => ({
-    ...chat,
-    state: agent.stateFor(chat.id),
-  });
+  const chatRecord = (chat: StoredChat): ChatRecord => {
+    const project = projects.require(chat.projectId);
+    return {
+      ...chat,
+      projectName: project.name,
+      state: agent.stateFor(chat.id),
+    };
+  };
 
   function resolveChatId(url: URL): string {
-    return url.searchParams.get("chatId") ?? config.sessionId;
+    const chatId = url.searchParams.get("chatId") ?? config.sessionId;
+    const chat = eventStore.getChat(chatId);
+    if (!chat || !projects.get(chat.projectId)) {
+      throw new Error("Chat is not associated with a registered project");
+    }
+    return chatId;
   }
 
   return createServer(async (request, response) => {
@@ -492,32 +517,46 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
       }
 
       if (request.method === "GET" && url.pathname === "/api/chats") {
-        sendJson(response, 200, { chats: eventStore.listChats().map(chatRecord) });
+        sendJson(response, 200, {
+          chats: eventStore
+            .listChats()
+            .filter(({ projectId }) => projects.get(projectId) !== undefined)
+            .map(chatRecord),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/projects") {
+        sendJson(response, 200, {
+          projects: projects.list().map(({ id, name, repository }) => ({
+            id,
+            name,
+            repository,
+          })),
+        });
         return;
       }
 
       if (request.method === "GET" && url.pathname === "/api/repositories") {
-        if (!owner) {
-          throw new Error("GitHub repository owner is not configured");
-        }
-        sendJson(response, 200, { repositories: listRepositories(owner) });
+        sendJson(response, 200, {
+          repositories: projects.list().map(({ repository }) => repository),
+        });
         return;
       }
 
       if (request.method === "POST" && url.pathname === "/api/chats") {
         const body = parseChatCreateBody(await readJsonBody(request));
-        if (!owner || !body.repository.startsWith(`${owner}/`)) {
-          throw new Error("Repository is not owned by the configured GitHub owner");
-        }
-        const repositories = listRepositories(owner);
-        if (!repositories.includes(body.repository)) {
-          throw new Error("Repository is not available for this Agent Outpost");
+        const project = body.projectId
+          ? projects.get(body.projectId)
+          : projects.list().find(({ repository }) => repository === body.repository);
+        if (!project) {
+          throw new Error("Project is not registered for this Agent Outpost");
         }
         const chat = eventStore.createChat({
           id: randomUUID(),
-          projectId: projectIdForRepository(body.repository),
+          projectId: project.id,
           name: "New chat",
-          repository: body.repository,
+          repository: project.repository,
         });
         sendJson(response, 201, { chat: chatRecord(chat) });
         return;
@@ -542,10 +581,7 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
           sendJson(response, 404, { error: "Chat not found" });
           return;
         }
-        const statistics =
-          id === config.sessionId
-            ? eventStore.chatStatistics()
-            : { messageCount: 0, estimatedTokens: 0, aicUsage: 0, firstMessageAt: null };
+        const statistics = eventStore.chatStatistics(id);
         sendJson(response, 200, { statistics: { ...statistics, createdAt: chat.createdAt } });
         return;
       }
@@ -589,10 +625,25 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
           sendJson(response, 409, { error: "Deployment candidate is stale or already handled" });
           return;
         }
-        if (!config.allowedGitRemote) throw new Error("Deployment is not configured");
+        const project = projects.require(candidate.projectId ?? defaultProject.id);
+        if (!project.allowedGitRemote) throw new Error("Deployment is not configured");
+        if (candidate.chatId) {
+          const chat = eventStore.getChat(candidate.chatId);
+          if (!chat || chat.projectId !== project.id) {
+            throw new Error("Deployment candidate is not associated with its registered project");
+          }
+        }
         sendJson(response, 202, approveDeploymentCandidate({
-          workspace: config.workspace, allowedGitRemote: config.allowedGitRemote,
-          requestDirectory: config.deploymentRequestDirectory, eventStore, eventHub,
+          projectId: project.id,
+          projectName: project.name,
+          targetId: project.deploymentTargetId,
+          integrationBranch: project.integrationBranch,
+          ...(candidate.chatId ? { chatId: candidate.chatId } : {}),
+          workspace: project.workspace,
+          allowedGitRemote: project.allowedGitRemote,
+          requestDirectory: project.deploymentRequestDirectory,
+          eventStore,
+          eventHub,
         }, candidate));
         return;
       }
@@ -601,9 +652,14 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
       if (request.method === "GET" && candidateDiff) {
         const candidate = deploymentCandidateEvents(eventStore).get(decodeURIComponent(candidateDiff[1] ?? ""));
         if (!candidate) { sendJson(response, 404, { error: "Deployment candidate not found" }); return; }
-        const base = deploymentDiffBase(config.workspace, config.deploymentRequestDirectory, candidate.commitSha);
+        const project = projects.require(candidate.projectId ?? defaultProject.id);
+        const base = deploymentDiffBase(
+          project.workspace,
+          project.deploymentRequestDirectory,
+          candidate.commitSha,
+        );
         const diff = execFileSync("git", ["--no-pager", "diff", "--no-ext-diff", base, candidate.commitSha], {
-          cwd: config.workspace, encoding: "utf8", maxBuffer: 256 * 1024,
+          cwd: project.workspace, encoding: "utf8", maxBuffer: 256 * 1024,
         }).slice(0, 200_000);
         response.statusCode = 200;
         response.setHeader("Content-Type", "text/plain; charset=utf-8");

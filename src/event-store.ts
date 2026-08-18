@@ -133,9 +133,19 @@ function parseRow(row: EventRow): OutpostEvent {
           : [];
       });
       if (files.length !== filesValue.length) break;
+      const projectId = stringProperty(payload, "projectId");
+      const projectName = stringProperty(payload, "projectName");
+      const targetId = stringProperty(payload, "targetId");
+      const integrationBranch = stringProperty(payload, "integrationBranch");
+      const chatId = stringProperty(payload, "chatId");
       return { id: row.id, kind: row.kind, createdAt: row.created_at, payload: {
         candidateId, commitSha, description, files, diffUrl,
         status: status as "pending" | "approved" | "rejected",
+        ...(projectId ? { projectId } : {}),
+        ...(projectName ? { projectName } : {}),
+        ...(targetId ? { targetId } : {}),
+        ...(integrationBranch ? { integrationBranch } : {}),
+        ...(chatId ? { chatId } : {}),
       }};
     }
     case "system.notice": {
@@ -202,6 +212,19 @@ export class EventStore implements Disposable {
     this.#database.prepare("UPDATE events SET chat_id = ? WHERE chat_id IS NULL").run(id);
   }
 
+  public adoptLegacyProjects(
+    defaultProjectId: string,
+    defaultRepository: string,
+  ): void {
+    this.#database
+      .prepare(
+        `UPDATE chats
+         SET project_id = ?, repository = ?
+         WHERE project_id LIKE 'github-%'`,
+      )
+      .run(defaultProjectId, defaultRepository);
+  }
+
   public ensureChat(
     chat: Omit<StoredChat, "createdAt"> & { readonly createdAt?: string },
   ): StoredChat {
@@ -220,7 +243,7 @@ export class EventStore implements Disposable {
         createdAt,
         chat.lastUsedAt,
       );
-    const stored = this.#getChat(chat.id);
+    const stored = this.getChat(chat.id);
     if (!stored) {
       throw new Error(`SQLite did not persist chat ${chat.id}`);
     }
@@ -241,7 +264,7 @@ export class EventStore implements Disposable {
         VALUES (?, ?, ?, ?, ?, ?)`,
       )
       .run(chat.id, chat.projectId, chat.name, chat.repository, createdAt, createdAt);
-    const stored = this.#getChat(chat.id);
+    const stored = this.getChat(chat.id);
     if (!stored) {
       throw new Error(`SQLite did not persist chat ${chat.id}`);
     }
@@ -268,17 +291,17 @@ export class EventStore implements Disposable {
     const result = this.#database
       .prepare("UPDATE chats SET name = ? WHERE id = ?")
       .run(name, id);
-    return result.changes === 0 ? undefined : this.#getChat(id);
+    return result.changes === 0 ? undefined : this.getChat(id);
   }
 
-  public chatStatistics(): ChatStatistics {
+  public chatStatistics(chatId: string): ChatStatistics {
     const rows = this.#database
       .prepare(
         `SELECT kind, created_at, payload FROM events
-        WHERE kind IN ('user.message', 'assistant.message')
+        WHERE chat_id = ? AND kind IN ('user.message', 'assistant.message')
         ORDER BY id ASC`,
       )
-      .all() as unknown as Array<Omit<EventRow, "id">>;
+      .all(chatId) as unknown as Array<Omit<EventRow, "id">>;
     let characters = 0;
     for (const row of rows) {
       const payload: unknown = JSON.parse(row.payload);
@@ -300,7 +323,7 @@ export class EventStore implements Disposable {
     const result = this.#database
       .prepare("UPDATE chats SET last_used_at = ? WHERE id = ?")
       .run(lastUsedAt, id);
-    return result.changes === 0 ? undefined : this.#getChat(id);
+    return result.changes === 0 ? undefined : this.getChat(id);
   }
 
   public append<K extends Exclude<OutpostEventKind, "assistant.delta">>(
@@ -351,7 +374,7 @@ export class EventStore implements Disposable {
     return rows.map(parseRow) as OutpostEvent<K>[];
   }
 
-  #getChat(id: string): StoredChat | undefined {
+  public getChat(id: string): StoredChat | undefined {
     const row = this.#database
       .prepare(
         `SELECT id, project_id, name, repository, created_at, last_used_at

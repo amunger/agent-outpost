@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { test } from "node:test";
 
 import { chromium } from "playwright";
@@ -44,6 +44,17 @@ test("workspace preview serves local assets with read-only API fixtures", async 
     const chats = await fetch(`${baseUrl}/api/chats`);
     const chatsBody = await chats.json() as { readonly chats: readonly unknown[] };
     assert.equal(chatsBody.chats.length, 1);
+
+    const projects = await fetch(`${baseUrl}/api/projects`);
+    assert.deepEqual(await projects.json(), {
+      projects: [
+        {
+          id: "agent-outpost",
+          name: "Agent Outpost",
+          repository: basename(join(publicDirectory, "..")),
+        },
+      ],
+    });
 
     const resources = await fetch(`${baseUrl}/api/status/resources`);
     assert.deepEqual(await resources.json(), {
@@ -113,7 +124,10 @@ test("workspace preview renders a deployment candidate approval card", async (co
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator(".chat-entry").click();
     const card = page.locator(".deployment-candidate");
-    await assert.equal(await card.locator("h2").textContent(), "Deployment candidate");
+    await assert.equal(
+      await card.locator("h2").textContent(),
+      "Agent Outpost deployment candidate",
+    );
     await assert.equal(await card.locator("button").textContent(), "Deploy");
     await assert.equal(await card.locator("li").count(), 2);
   } finally {
