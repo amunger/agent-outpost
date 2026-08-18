@@ -17,6 +17,7 @@ readonly runtime_home=/var/lib/collected-recipes/runtime
 readonly build_runtime=/run/collected-recipes-build
 readonly runtime_runtime=/run/collected-recipes
 readonly runtime_import_directory="${runtime_home}/imports"
+readonly candidate_data_directory="${runtime_home}/candidate-data"
 readonly runtime_environment=/etc/collected-recipes/collected-recipes.env
 readonly outpost_entrypoint=http://127.0.0.1:3000/ready
 
@@ -150,6 +151,7 @@ cleanup() {
     HOME="${runtime_home}" \
     XDG_RUNTIME_DIR="${runtime_runtime}" \
     podman --cgroup-manager=cgroupfs rm --force collected-recipes-candidate >/dev/null 2>&1
+  rm -rf --one-file-system -- "${candidate_data_directory}"
   git_agent worktree remove --force "${operator_build}" >/dev/null 2>&1
   rm -rf --one-file-system -- "${build_directory}"
   rm -f -- "${archive}" "${runtime_archive}"
@@ -228,6 +230,9 @@ if [[ ! "${image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
 fi
 
 run_runtime podman --cgroup-manager=cgroupfs rm --force collected-recipes-candidate >/dev/null 2>&1 || true
+rm -rf --one-file-system -- "${candidate_data_directory}"
+install -d -o collected-recipes-runtime -g collected-recipes-runtime -m 0700 \
+  "${candidate_data_directory}"
 run_runtime podman --cgroup-manager=cgroupfs run \
   --detach \
   --name collected-recipes-candidate \
@@ -243,7 +248,7 @@ run_runtime podman --cgroup-manager=cgroupfs run \
   --publish 127.0.0.1:3101:3000 \
   --tmpfs /tmp:rw,size=256m,mode=1777,noexec,nosuid,nodev \
   --tmpfs /app/.next/cache:rw,size=64m,mode=1777,noexec,nosuid,nodev \
-  --tmpfs /data:rw,size=32m,mode=0700,uid=1000,gid=1000,nosuid,nodev \
+  --volume "${candidate_data_directory}:/data:rw" \
   --env RECIPE_DATABASE_PATH=/data/recipes.db \
   "${image_id}"
 
