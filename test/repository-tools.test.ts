@@ -42,6 +42,13 @@ test("publish tool stages, commits with trailer, and pushes agent/current", asyn
       arguments: { message: "Update readme" },
     });
 
+    const commitSha = git(repository, ["rev-parse", "HEAD"]);
+    assert.deepEqual(result, {
+      status: "published",
+      commitSha,
+      message: "Changes were committed and pushed. Use deploy_agent_outpost with commitSha.",
+    });
+
     test("publish tool uses the registered project's integration branch", async () => {
       const root = mkdtempSync(join(tmpdir(), "agent-outpost-project-publish-"));
       const remote = join(root, "remote.git");
@@ -86,13 +93,6 @@ test("publish tool stages, commits with trailer, and pushes agent/current", asyn
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
-    });
-
-    const commitSha = git(repository, ["rev-parse", "HEAD"]);
-    assert.deepEqual(result, {
-      status: "published",
-      commitSha,
-      message: "Changes were committed and pushed. Use deploy_agent_outpost with commitSha.",
     });
     assert.equal(git(repository, ["rev-parse", "origin/agent/current"]), commitSha);
     assert.match(
