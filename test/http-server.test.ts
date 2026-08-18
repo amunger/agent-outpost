@@ -18,6 +18,11 @@ class FakeAgent implements AgentController {
   public model = "auto";
   public readonly messages: string[] = [];
   public readonly sentChatIds: (string | null)[] = [];
+  public readonly states = new Map<string, AgentState>();
+
+  public stateFor(chatId: string | null): AgentState {
+    return this.states.get(chatId ?? "test") ?? this.state;
+  }
 
   public async listModels(): Promise<string[]> {
     return ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "claude-sonnet-4.5"];
@@ -34,7 +39,7 @@ class FakeAgent implements AgentController {
     this.sentChatIds.push(chatId);
   }
 
-  public async cancel(): Promise<void> {}
+  public async cancel(_chatId: string | null): Promise<void> {}
 
   public async stop(): Promise<void> {}
 }
@@ -308,6 +313,15 @@ test("Concurrent chat switches do not cross-contaminate message routing or histo
       body: JSON.stringify({ repository: "amunger/agent-outpost" }),
     });
     const secondChat = ((await createdChat.json()) as { chat: { id: string } }).chat;
+    agent.states.set("primary-chat", "running");
+    agent.states.set(secondChat.id, "idle");
+
+    const chatsResponse = await fetch(`${baseUrl}/api/chats`, { headers });
+    const chats = ((await chatsResponse.json()) as {
+      chats: { id: string; state: AgentState }[];
+    }).chats;
+    assert.equal(chats.find(({ id }) => id === "primary-chat")?.state, "running");
+    assert.equal(chats.find(({ id }) => id === secondChat.id)?.state, "idle");
 
     // Select the second chat first (simulating a second browser tab), then send
     // a message intended for the primary chat. The message must be attributed
@@ -349,11 +363,19 @@ test("Concurrent chat switches do not cross-contaminate message routing or histo
       `${baseUrl}/api/session?chatId=${encodeURIComponent(secondChat.id)}`,
       { headers },
     );
-    const secondEvents = ((await secondSession.json()) as { events: { payload: { content?: string } }[] }).events;
+    const secondSnapshot = (await secondSession.json()) as {
+      state: AgentState;
+      events: { payload: { content?: string } }[];
+    };
     assert.equal(
-      secondEvents.some((event) => event.payload.content === "message for primary chat"),
+      secondSnapshot.events.some((event) => event.payload.content === "message for primary chat"),
       false,
       "the second chat must not see a message that belongs to the primary chat",
+    );
+    assert.equal(
+      secondSnapshot.state,
+      "idle",
+      "an idle chat must not inherit the running state of another chat",
     );
   } finally {
     eventHub.close();

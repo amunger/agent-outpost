@@ -37,6 +37,7 @@ export interface ScreenshotToolOptions {
   readonly eventStore: EventStore;
   readonly eventHub: SseHub;
   readonly workspacePublicDirectory: string;
+  readonly chatId?: string;
 }
 
 function cleanOldScreenshots(artifactDirectory: string): void {
@@ -252,16 +253,19 @@ export function createScreenshotTool(
 
         const url = `/api/artifacts/${filename}`;
         const absoluteUrl = options.publicBaseUrl ? `${options.publicBaseUrl}${url}` : undefined;
-        const stored = options.eventStore.append({
-          kind: "assistant.artifact",
-          payload: {
-            caption: `${viewportName === "mobile" ? "Mobile" : "Desktop"} UI screenshot`,
-            url,
-            kind: "screenshot",
-            ...(absoluteUrl ? { absoluteUrl } : {}),
+        const stored = options.eventStore.append(
+          {
+            kind: "assistant.artifact",
+            payload: {
+              caption: `${viewportName === "mobile" ? "Mobile" : "Desktop"} UI screenshot`,
+              url,
+              kind: "screenshot",
+              ...(absoluteUrl ? { absoluteUrl } : {}),
+            },
           },
-        });
-        options.eventHub.publish(stored);
+          options.chatId ?? null,
+        );
+        options.eventHub.publish(stored, options.chatId ?? null);
 
         return {
           status: "captured",

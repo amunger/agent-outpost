@@ -177,7 +177,8 @@ Repository-wide role selection is defined in
 
 The single-user Azure deployment is operational. It remains an evolving MVP:
 
-- One principal repository workspace and Copilot session.
+- One principal repository workspace with independent persistent Copilot
+  sessions for each chat.
 - GitHub-specific repository and issue workflows.
 - Private access through Tailscale.
 - Copilot local sandbox functionality is experimental.

@@ -20,6 +20,7 @@ const saveModelButton = document.querySelector("#save-model");
 let streamingMessage;
 let autoScrollTimeline = true;
 let activeChatId;
+let chatViewGeneration = 0;
 
 function assertElement(element, selector) {
   if (!element) {
@@ -414,6 +415,7 @@ function scrollTimelineAfterLayout() {
 }
 
 function showChatList() {
+  chatViewGeneration += 1;
   closeEvents();
   chatView.hidden = true;
   chatList.hidden = false;
@@ -421,29 +423,35 @@ function showChatList() {
 }
 
 async function openChat(chat) {
-  await request(`/api/chats/${encodeURIComponent(chat.id)}/select`, { method: "POST" });
+  const generation = chatViewGeneration + 1;
+  chatViewGeneration = generation;
   activeChatId = chat.id;
+  await request(`/api/chats/${encodeURIComponent(chat.id)}/select`, { method: "POST" });
+  if (generation !== chatViewGeneration || activeChatId !== chat.id) {
+    return;
+  }
   showChatView();
   chatTitle.textContent = chat.name;
   autoScrollTimeline = true;
-  const snapshot = await loadSession();
-  scrollTimelineAfterLayout();
-  connectEvents(snapshot.events.at(-1)?.id || 0);
-}
-
-async function loadSession() {
-  const snapshot = await request(`/api/session?chatId=${encodeURIComponent(activeChatId)}`);
+  const snapshot = await loadSession(chat.id);
+  if (generation !== chatViewGeneration || activeChatId !== chat.id) {
+    return;
+  }
   timeline.replaceChildren();
   snapshot.events.forEach(handleEvent);
   setState(snapshot.state);
   autoScrollTimeline = true;
   scrollTimelineAfterLayout();
-  return snapshot;
+  connectEvents(snapshot.events.at(-1)?.id || 0, chat.id);
 }
 
-function connectEvents(after) {
+async function loadSession(chatId) {
+  return request(`/api/session?chatId=${encodeURIComponent(chatId)}`);
+}
+
+function connectEvents(after, chatId) {
   closeEvents();
-  eventSource = new EventSource(`/api/session/events?after=${after}&chatId=${encodeURIComponent(activeChatId)}`);
+  eventSource = new EventSource(`/api/session/events?after=${after}&chatId=${encodeURIComponent(chatId)}`);
   const source = eventSource;
   const types = [
     "user.message",
@@ -457,14 +465,20 @@ function connectEvents(after) {
   ];
   types.forEach((type) => {
     source.addEventListener(type, (message) => {
-      handleEvent(JSON.parse(message.data));
+      if (activeChatId === chatId) {
+        handleEvent(JSON.parse(message.data));
+      }
     });
   });
   source.onerror = () => {
-    errorElement.textContent = "Live updates disconnected; reconnecting…";
+    if (activeChatId === chatId) {
+      errorElement.textContent = "Live updates disconnected; reconnecting…";
+    }
   };
   source.onopen = () => {
-    errorElement.textContent = "";
+    if (activeChatId === chatId) {
+      errorElement.textContent = "";
+    }
   };
 }
 
@@ -524,7 +538,7 @@ composer.addEventListener("submit", async (event) => {
 cancelButton.addEventListener("click", async () => {
   errorElement.textContent = "";
   try {
-    await request("/api/session/cancel", { method: "POST" });
+    await request(`/api/session/cancel?chatId=${encodeURIComponent(activeChatId)}`, { method: "POST" });
   } catch (error) {
     errorElement.textContent = error instanceof Error ? error.message : String(error);
   }

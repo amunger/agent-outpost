@@ -17,7 +17,7 @@ Tailscale client
   -> nginx
   -> active application slot (:3001 or :3002)
   -> HTTP API / SSE / static mobile UI
-  -> persistent Copilot SDK session
+  -> persistent Copilot SDK sessions
 ```
 
 Tailscale Serve provides HTTPS and the authenticated login header. nginx is the
@@ -54,10 +54,13 @@ the chat API and Copilot SDK connection.
 Production API routes require the configured Tailscale user. Mutations also
 require a same-origin `Origin` header.
 
-### Persistent Copilot session
+### Persistent Copilot sessions
 
-`src/agent.ts` creates or resumes one stable SDK session. The SDK launches the
-Copilot runtime locally and stores session state under `COPILOT_HOME`.
+`src/agent.ts` creates or resumes one stable SDK session per chat. Each chat has
+its own conversation context, active turn, cancellation, state, and event
+stream, so work can continue independently while a phone is viewing another
+chat or is backgrounded. The SDK launches the Copilot runtime locally and
+stores session state under `COPILOT_HOME`.
 
 The model setting defaults to `auto`. A previous observed routed model was
 `gpt-5.6-luna`, but routing can change per turn and must not be treated as
@@ -87,9 +90,10 @@ required user input.
 
 ### Conversation and artifacts
 
-SQLite stores durable application events. Copilot also maintains its own SDK
-session history. Screenshot capture emits an `assistant.artifact` event, so the
-image is rendered even if the model does not paste a URL into prose.
+SQLite stores durable application events scoped to their chat. Copilot also
+maintains each chat's SDK session history. Screenshot capture emits a
+chat-scoped `assistant.artifact` event, so the image is rendered in the chat
+that requested it even if the model does not paste a URL into prose.
 
 Artifacts are private, retained for at most seven days, and capped by the
 screenshot cleanup policy.

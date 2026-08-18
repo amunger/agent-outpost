@@ -436,7 +436,7 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
   });
   const chatRecord = (chat: StoredChat): ChatRecord => ({
     ...chat,
-    state: agent.state,
+    state: agent.stateFor(chat.id),
   });
 
   function resolveChatId(url: URL): string {
@@ -579,7 +579,8 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
       }
 
       if (request.method === "GET" && url.pathname === "/api/session") {
-        sendJson(response, 200, { state: agent.state, events: eventStore.list({ chatId: resolveChatId(url) }) });
+        const chatId = resolveChatId(url);
+        sendJson(response, 200, { state: agent.stateFor(chatId), events: eventStore.list({ chatId }) });
         return;
       }
 
@@ -639,7 +640,7 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
       }
 
       if (request.method === "POST" && url.pathname === "/api/session/cancel") {
-        await agent.cancel();
+        await agent.cancel(resolveChatId(url));
         sendJson(response, 202, { accepted: true });
         return;
       }
