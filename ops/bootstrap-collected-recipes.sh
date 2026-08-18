@@ -11,6 +11,8 @@ readonly recipes_workspace=/srv/agent-outpost/projects/collected-recipes/workspa
 readonly recipes_remote=https://github.com/amunger/collected-recipes.git
 readonly integration_branch=agent/current
 
+cd /
+
 if [[
   ! -f "${source_directory}/ops/collected-recipes-deploy" ||
   ! -f "${source_directory}/ops/projects.json.example"
