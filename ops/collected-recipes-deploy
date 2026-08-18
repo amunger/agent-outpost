@@ -219,6 +219,9 @@ run_runtime podman --cgroup-manager=cgroupfs load --input "${runtime_archive}"
 image_id=$(run_runtime podman --cgroup-manager=cgroupfs image inspect \
   --format '{{.Id}}' \
   "localhost/collected-recipes:${commit_sha}")
+if [[ "${image_id}" =~ ^[0-9a-f]{64}$ ]]; then
+  image_id="sha256:${image_id}"
+fi
 if [[ ! "${image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
   echo "Podman did not return an immutable image identifier." >&2
   exit 1
