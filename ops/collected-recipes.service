@@ -25,7 +25,6 @@ Delegate=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ProtectKernelTunables=true
 ProtectKernelModules=true
 LockPersonality=true
 ReadWritePaths=/var/lib/collected-recipes/runtime /var/lib/collected-recipes/data
