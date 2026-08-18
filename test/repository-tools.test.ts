@@ -48,58 +48,58 @@ test("publish tool stages, commits with trailer, and pushes agent/current", asyn
       commitSha,
       message: "Changes were committed and pushed. Use deploy_agent_outpost with commitSha.",
     });
-
-    test("publish tool uses the registered project's integration branch", async () => {
-      const root = mkdtempSync(join(tmpdir(), "agent-outpost-project-publish-"));
-      const remote = join(root, "remote.git");
-      const repository = join(root, "repository");
-
-      try {
-        execFileSync("git", ["init", "--bare", remote]);
-        execFileSync("git", ["init", "--initial-branch=recipes/current", repository]);
-        git(repository, ["config", "user.name", "Test"]);
-        git(repository, ["config", "user.email", "test@example.com"]);
-        git(repository, ["remote", "add", "origin", remote]);
-        writeFileSync(join(repository, "README.md"), "initial\n");
-        git(repository, ["add", "README.md"]);
-        git(repository, ["commit", "-m", "Initial"]);
-        git(repository, ["push", "--set-upstream", "origin", "recipes/current"]);
-        writeFileSync(join(repository, "README.md"), "updated\n");
-
-        const [publish] = createRepositoryTools({
-          projectName: "Collected Recipes",
-          workspace: repository,
-          allowedGitRemote: remote,
-          integrationBranch: "recipes/current",
-          githubRepository: "owner/collected-recipes",
-        });
-        const result = await publish.handler?.(
-          { message: "Update recipe app" },
-          {
-            sessionId: "recipes-chat",
-            toolCallId: "project-publish",
-            toolName: publish.name,
-            arguments: { message: "Update recipe app" },
-          },
-        );
-
-        assert.ok(result && typeof result === "object" && "status" in result && "commitSha" in result);
-        assert.equal(result.status, "published");
-        assert.equal(typeof result.commitSha, "string");
-        assert.equal(
-          git(repository, ["rev-parse", "origin/recipes/current"]),
-          result.commitSha,
-        );
-      } finally {
-        rmSync(root, { recursive: true, force: true });
-      }
-    });
     assert.equal(git(repository, ["rev-parse", "origin/agent/current"]), commitSha);
     assert.match(
       git(repository, ["show", "-s", "--format=%B", "HEAD"]),
       /Co-authored-by: Copilot <223556219\+Copilot@users\.noreply\.github\.com>/,
     );
     assert.equal(readFileSync(join(repository, "README.md"), "utf8"), "updated\n");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("publish tool uses the registered project's integration branch", async () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-outpost-project-publish-"));
+  const remote = join(root, "remote.git");
+  const repository = join(root, "repository");
+
+  try {
+    execFileSync("git", ["init", "--bare", remote]);
+    execFileSync("git", ["init", "--initial-branch=recipes/current", repository]);
+    git(repository, ["config", "user.name", "Test"]);
+    git(repository, ["config", "user.email", "test@example.com"]);
+    git(repository, ["remote", "add", "origin", remote]);
+    writeFileSync(join(repository, "README.md"), "initial\n");
+    git(repository, ["add", "README.md"]);
+    git(repository, ["commit", "-m", "Initial"]);
+    git(repository, ["push", "--set-upstream", "origin", "recipes/current"]);
+    writeFileSync(join(repository, "README.md"), "updated\n");
+
+    const [publish] = createRepositoryTools({
+      projectName: "Collected Recipes",
+      workspace: repository,
+      allowedGitRemote: remote,
+      integrationBranch: "recipes/current",
+      githubRepository: "owner/collected-recipes",
+    });
+    const result = await publish.handler?.(
+      { message: "Update recipe app" },
+      {
+        sessionId: "recipes-chat",
+        toolCallId: "project-publish",
+        toolName: publish.name,
+        arguments: { message: "Update recipe app" },
+      },
+    );
+
+    assert.ok(result && typeof result === "object" && "status" in result && "commitSha" in result);
+    assert.equal(result.status, "published");
+    assert.equal(typeof result.commitSha, "string");
+    assert.equal(
+      git(repository, ["rev-parse", "origin/recipes/current"]),
+      result.commitSha,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
