@@ -42,8 +42,14 @@ if ! runuser -u agent-outpost -- git ls-remote \
   exit 1
 fi
 
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y \
+apt-get \
+  -o Acquire::Retries=5 \
+  -o Acquire::http::Timeout=30 \
+  update
+DEBIAN_FRONTEND=noninteractive apt-get \
+  -o Acquire::Retries=5 \
+  -o Acquire::http::Timeout=30 \
+  install -y --fix-missing \
   curl \
   fuse-overlayfs \
   jq \
