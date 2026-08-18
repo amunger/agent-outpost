@@ -182,6 +182,7 @@ run_build() {
     --property=Delegate=true \
     --property=PrivateTmp=true \
     --property=IPAddressDeny=localhost \
+    --property=IPAddressAllow=127.0.0.53 \
     --property=IPAddressDeny=100.64.0.0/10 \
     --property=IPAddressDeny=169.254.169.254 \
     --property=CPUQuota=100% \
