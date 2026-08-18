@@ -92,6 +92,7 @@ install -d -o collected-recipes-build -g collected-recipes-build -m 0700 \
 install -d -o collected-recipes-runtime -g collected-recipes-runtime -m 0700 \
   /var/lib/collected-recipes/runtime \
   /var/lib/collected-recipes/runtime/imports \
+  /var/lib/collected-recipes/runtime/next-cache \
   /var/lib/collected-recipes/data \
   /run/collected-recipes
 install -d -o root -g root -m 0700 \

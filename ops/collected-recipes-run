@@ -3,6 +3,7 @@ set -euo pipefail
 
 readonly active_state=/var/lib/collected-recipes/deployment/active
 readonly data_directory=/var/lib/collected-recipes/data
+readonly cache_directory=/var/lib/collected-recipes/runtime/next-cache
 
 if [[ ! -f "${active_state}" || -L "${active_state}" ]]; then
   echo "Collected Recipes active state is missing or invalid." >&2
@@ -18,6 +19,8 @@ if [[
   echo "Collected Recipes active state is invalid." >&2
   exit 1
 fi
+
+install -d -m 0700 "${cache_directory}"
 
 exec /usr/bin/podman --cgroup-manager=cgroupfs run \
   --rm \
@@ -35,7 +38,7 @@ exec /usr/bin/podman --cgroup-manager=cgroupfs run \
   --network slirp4netns:allow_host_loopback=false \
   --publish 127.0.0.1:3100:3000 \
   --tmpfs /tmp:rw,size=256m,mode=1777,noexec,nosuid,nodev \
-  --tmpfs /app/.next/cache:rw,size=64m,mode=1777,noexec,nosuid,nodev \
+  --volume "${cache_directory}:/app/.next/cache:rw" \
   --volume "${data_directory}:/data:rw" \
   --env COPILOT_GITHUB_TOKEN \
   --env FDC_API_KEY \
