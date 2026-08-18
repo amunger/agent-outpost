@@ -75,6 +75,38 @@ test("EventStore no longer exposes shared mutable active-chat state", () => {
   }
 });
 
+test("EventStore finds deployment candidates beyond the bounded timeline window", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agent-outpost-candidates-"));
+  try {
+    using store = new EventStore(directory);
+    for (let index = 0; index < 501; index += 1) {
+      store.append(
+        { kind: "system.notice", payload: { message: `notice ${index}` } },
+        "busy-chat",
+      );
+    }
+    const candidate = store.append(
+      {
+        kind: "deployment.candidate",
+        payload: {
+          candidateId: "11111111-1111-4111-8111-111111111111",
+          commitSha: "a".repeat(40),
+          description: "Independent chat sessions",
+          files: [],
+          diffUrl: "/api/deployment-candidates/11111111-1111-4111-8111-111111111111/diff",
+          status: "pending",
+        },
+      },
+      "busy-chat",
+    );
+
+    assert.equal(store.list({ chatId: "busy-chat" }).includes(candidate), false);
+    assert.deepEqual(store.listByKind("deployment.candidate"), [candidate]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("EventStore persists project-backed chats across restarts", () => {
   const directory = mkdtempSync(join(tmpdir(), "agent-outpost-chats-"));
   try {

@@ -212,11 +212,9 @@ function parseMessageBody(value: unknown): MessageBody {
 
 function deploymentCandidateEvents(eventStore: EventStore): Map<string, DeploymentCandidate & { status: "pending" | "approved" | "rejected" }> {
   const candidates = new Map<string, DeploymentCandidate & { status: "pending" | "approved" | "rejected" }>();
-  for (const event of eventStore.list()) {
-    if (event.kind === "deployment.candidate") {
-      const payload = event.payload as DeploymentCandidate & { status: "pending" | "approved" | "rejected" };
-      candidates.set(payload.candidateId, payload);
-    }
+  for (const event of eventStore.listByKind("deployment.candidate")) {
+    const payload = event.payload as DeploymentCandidate & { status: "pending" | "approved" | "rejected" };
+    candidates.set(payload.candidateId, payload);
   }
   return candidates;
 }

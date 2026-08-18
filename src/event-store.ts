@@ -338,6 +338,19 @@ export class EventStore implements Disposable {
     return rows.map(parseRow);
   }
 
+  public listByKind<K extends Exclude<OutpostEventKind, "assistant.delta">>(
+    kind: K,
+  ): OutpostEvent<K>[] {
+    const rows = this.#database
+      .prepare(
+        `SELECT id, chat_id, kind, created_at, payload FROM events
+         WHERE kind = ?
+         ORDER BY id ASC`,
+      )
+      .all(kind) as unknown as EventRow[];
+    return rows.map(parseRow) as OutpostEvent<K>[];
+  }
+
   #getChat(id: string): StoredChat | undefined {
     const row = this.#database
       .prepare(
