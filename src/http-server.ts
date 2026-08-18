@@ -11,6 +11,11 @@ import type { AgentState } from "./domain.js";
 import { EventStore, type StoredChat } from "./event-store.js";
 import { ResourceMonitor } from "./resource-monitor.js";
 import { SseHub } from "./sse-hub.js";
+import {
+  approveDeploymentCandidate,
+  deploymentDiffBase,
+  type DeploymentCandidate,
+} from "./deployment-tool.js";
 
 const contentTypes: Readonly<Record<string, string>> = {
   ".css": "text/css; charset=utf-8",
@@ -197,11 +202,23 @@ function parseMessageBody(value: unknown): MessageBody {
   ) {
     throw new Error("Request body must contain a string content field");
   }
+
   const content = value.content.trim();
   if (!content || content.length > 20_000) {
     throw new Error("Message content must contain 1 to 20,000 characters");
   }
   return { content };
+}
+
+function deploymentCandidateEvents(eventStore: EventStore): Map<string, DeploymentCandidate & { status: "pending" | "approved" | "rejected" }> {
+  const candidates = new Map<string, DeploymentCandidate & { status: "pending" | "approved" | "rejected" }>();
+  for (const event of eventStore.list()) {
+    if (event.kind === "deployment.candidate") {
+      const payload = event.payload as DeploymentCandidate & { status: "pending" | "approved" | "rejected" };
+      candidates.set(payload.candidateId, payload);
+    }
+  }
+  return candidates;
 }
 
 async function serveStatic(
@@ -246,14 +263,32 @@ async function serveStatic(
 }
 
 export function createWorkspacePreviewServer(publicDirectory: string): Server {
-  const previewEvents = Array.from({ length: 30 }, (_, index) => ({
-    id: index + 1,
-    kind: index % 2 === 0 ? "user.message" : "assistant.message",
-    createdAt: new Date(index * 1_000).toISOString(),
-    payload: {
-      content: `Preview message ${index + 1}: enough content to exercise conversation scrolling.`,
+  const previewEvents = [
+    ...Array.from({ length: 30 }, (_, index) => ({
+      id: index + 1,
+      kind: index % 2 === 0 ? "user.message" : "assistant.message",
+      createdAt: new Date(index * 1_000).toISOString(),
+      payload: {
+        content: `Preview message ${index + 1}: enough content to exercise conversation scrolling.`,
+      },
+    })),
+    {
+      id: 31,
+      kind: "deployment.candidate",
+      createdAt: new Date(30_000).toISOString(),
+      payload: {
+        candidateId: "11111111-1111-4111-8111-111111111111",
+        commitSha: "0123456789abcdef0123456789abcdef01234567",
+        description: "Preview deployment candidate",
+        files: [
+          { path: "public/app.js", added: 18, removed: 4 },
+          { path: "src/http-server.ts", added: 9, removed: 2 },
+        ],
+        diffUrl: "/api/deployment-candidates/11111111-1111-4111-8111-111111111111/diff",
+        status: "pending",
+      },
     },
-  }));
+  ];
 
   return createServer(async (request, response) => {
     setSecurityHeaders(response);
@@ -542,6 +577,36 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
 
       if (request.method === "GET" && url.pathname === "/api/session") {
         sendJson(response, 200, { state: agent.state, events: eventStore.list() });
+        return;
+      }
+
+      const candidateApproval = url.pathname.match(/^\/api\/deployment-candidates\/([^/]+)\/approve$/);
+      if (request.method === "POST" && candidateApproval) {
+        const candidate = deploymentCandidateEvents(eventStore).get(decodeURIComponent(candidateApproval[1] ?? ""));
+        if (!candidate || candidate.status !== "pending") {
+          sendJson(response, 409, { error: "Deployment candidate is stale or already handled" });
+          return;
+        }
+        if (!config.allowedGitRemote) throw new Error("Deployment is not configured");
+        sendJson(response, 202, approveDeploymentCandidate({
+          workspace: config.workspace, allowedGitRemote: config.allowedGitRemote,
+          requestDirectory: config.deploymentRequestDirectory, eventStore, eventHub,
+        }, candidate));
+        return;
+      }
+
+      const candidateDiff = url.pathname.match(/^\/api\/deployment-candidates\/([^/]+)\/diff$/);
+      if (request.method === "GET" && candidateDiff) {
+        const candidate = deploymentCandidateEvents(eventStore).get(decodeURIComponent(candidateDiff[1] ?? ""));
+        if (!candidate) { sendJson(response, 404, { error: "Deployment candidate not found" }); return; }
+        const base = deploymentDiffBase(config.workspace, config.deploymentRequestDirectory, candidate.commitSha);
+        const diff = execFileSync("git", ["--no-pager", "diff", "--no-ext-diff", base, candidate.commitSha], {
+          cwd: config.workspace, encoding: "utf8", maxBuffer: 256 * 1024,
+        }).slice(0, 200_000);
+        response.statusCode = 200;
+        response.setHeader("Content-Type", "text/plain; charset=utf-8");
+        response.setHeader("Cache-Control", "private, no-cache");
+        response.end(diff);
         return;
       }
 

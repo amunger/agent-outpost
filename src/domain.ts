@@ -7,6 +7,7 @@ export type OutpostEventKind =
   | "assistant.artifact"
   | "session.state"
   | "session.error"
+  | "deployment.candidate"
   | "system.notice";
 
 export interface OutpostEventPayloads {
@@ -30,6 +31,18 @@ export interface OutpostEventPayloads {
   };
   readonly "session.error": {
     readonly message: string;
+  };
+  readonly "deployment.candidate": {
+    readonly candidateId: string;
+    readonly commitSha: string;
+    readonly description: string;
+    readonly files: readonly {
+      readonly path: string;
+      readonly added: number;
+      readonly removed: number;
+    }[];
+    readonly diffUrl: string;
+    readonly status: "pending" | "approved" | "rejected";
   };
   readonly "system.notice": {
     readonly message: string;

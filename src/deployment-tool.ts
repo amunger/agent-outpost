@@ -1,8 +1,11 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { linkSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { linkSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { defineTool, type Tool } from "@github/copilot-sdk";
+import type { EventStore } from "./event-store.js";
+import type { OutpostEvent } from "./domain.js";
 
 interface DeploymentArguments {
   readonly commitSha: string;
@@ -14,6 +17,8 @@ export interface DeploymentToolOptions {
   readonly workspace: string;
   readonly allowedGitRemote: string;
   readonly requestDirectory: string;
+  readonly eventStore?: EventStore;
+  readonly eventHub?: { publish(event: OutpostEvent): void };
 }
 
 const safeGitConfiguration = [
@@ -93,6 +98,7 @@ function scheduleDeployment(
     if (error instanceof Error && "code" in error && error.code === "EEXIST") {
       throw new Error("A deployment request is already pending");
     }
+
     throw error;
   } finally {
     unlinkSync(temporaryPath);
@@ -105,6 +111,56 @@ function scheduleDeployment(
       "Deployment was scheduled. Send the user a concise confirmation now; " +
       "the service will restart after the response is persisted.",
   };
+}
+
+export interface DeploymentCandidate {
+  readonly candidateId: string;
+  readonly commitSha: string;
+  readonly description: string;
+  readonly files: readonly { readonly path: string; readonly added: number; readonly removed: number }[];
+  readonly diffUrl: string;
+}
+
+export function deploymentDiffBase(workspace: string, requestDirectory: string, commitSha: string): string {
+  try {
+    const active = readFileSync(join(requestDirectory, "..", "deployment", "active"), "utf8").trim().split(/\s+/)[1];
+    if (active && /^[0-9a-f]{40}$/.test(active) && isAncestor(workspace, active, commitSha)) {
+      return active;
+    }
+  } catch {
+    // Fall back to the candidate's parent when no authoritative deployment state exists.
+  }
+  try { return git(workspace, ["rev-parse", `${commitSha}^`]); }
+  catch { return "4b825dc642cb6eb9a060e54bf8d69288fbee4904"; }
+}
+
+function candidateDetails(workspace: string, requestDirectory: string, commitSha: string): Omit<DeploymentCandidate, "candidateId"> {
+  const base = deploymentDiffBase(workspace, requestDirectory, commitSha);
+  const files = git(workspace, ["diff", "--numstat", base, commitSha]).split(/\r?\n/).filter(Boolean).map((line) => {
+    const [addedRaw, removedRaw, ...pathParts] = line.split("\t");
+    return { path: pathParts.join("\t"), added: Number.parseInt(addedRaw ?? "0", 10) || 0, removed: Number.parseInt(removedRaw ?? "0", 10) || 0 };
+  });
+  return { commitSha, description: git(workspace, ["log", "-1", "--format=%s", commitSha]).slice(0, 500), files, diffUrl: "/api/deployment-candidates/{candidateId}/diff" };
+}
+
+function createCandidate(options: DeploymentToolOptions, commitSha: string): unknown {
+  if (!options.eventStore) return scheduleDeployment(options.requestDirectory, commitSha, commitSha);
+  const raw = { candidateId: randomUUID(), ...candidateDetails(options.workspace, options.requestDirectory, commitSha) };
+  const diffUrl = raw.diffUrl.replace("{candidateId}", raw.candidateId);
+  const event = options.eventStore.append({ kind: "deployment.candidate", payload: { ...raw, diffUrl, status: "pending" } });
+  options.eventHub?.publish(event);
+  return { status: "candidate", candidate: { ...raw, diffUrl }, message: "Deployment candidate created. Present the approval card to the user; do not deploy until approved." };
+}
+
+export function approveDeploymentCandidate(options: DeploymentToolOptions, candidate: DeploymentCandidate): {
+  readonly status: "scheduled"; readonly commitSha: string; readonly message: string;
+} {
+  assertDeploymentWorkspace(options);
+  if (git(options.workspace, ["rev-parse", "HEAD"]) !== candidate.commitSha) throw new Error("Deployment candidate is stale; the checked-out revision changed");
+  const result = scheduleDeployment(options.requestDirectory, candidate.commitSha, candidate.commitSha);
+  const event = options.eventStore?.append({ kind: "deployment.candidate", payload: { ...candidate, status: "approved" } });
+  if (event) options.eventHub?.publish(event);
+  return result;
 }
 
 function assertDeploymentWorkspace(
@@ -159,7 +215,7 @@ function exactDeploymentTool(options: DeploymentToolOptions): Tool<DeploymentArg
       if (head !== commitSha) {
         throw new Error(`Requested commit ${commitSha} is not the checked-out HEAD ${head}`);
       }
-      return scheduleDeployment(options.requestDirectory, commitSha, commitSha);
+      return createCandidate(options, commitSha);
     },
   });
 }
@@ -196,7 +252,9 @@ function latestDeploymentTool(
       }
 
       const commitSha = git(options.workspace, ["rev-parse", "HEAD"]);
-      return scheduleDeployment(options.requestDirectory, "latest", commitSha);
+      return options.eventStore
+        ? createCandidate(options, commitSha)
+        : scheduleDeployment(options.requestDirectory, "latest", commitSha);
     },
   });
 }

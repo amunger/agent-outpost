@@ -103,6 +103,8 @@ export class CopilotAgent implements AgentController {
                 workspace: this.#workspace,
                 allowedGitRemote: this.#allowedGitRemote,
                 requestDirectory: this.#deploymentRequestDirectory,
+                eventStore: this.#eventStore,
+                eventHub: this.#eventHub,
               });
       const repositoryTools =
         this.#allowedGitRemote === undefined || this.#githubRepository === undefined
@@ -154,10 +156,11 @@ export class CopilotAgent implements AgentController {
             "For conversation scrolling, open .chat-entry and assert #timeline at bottom; scroll it to top, " +
             "click #scroll-to-bottom, and assert #timeline at bottom again. It publishes the image directly into " +
             "the conversation, so do not repeat the artifact URL as plain text. " +
-            "After publishing changes, call deploy_agent_outpost internally with the returned commit SHA. " +
-            "For a plain-language request to deploy existing latest changes, call deploy_latest_agent_outpost without " +
+            "After publishing changes, call deploy_agent_outpost internally with the returned commit SHA; this creates " +
+            "a Deployment candidate approval card and does not deploy. Never claim deployment is scheduled until the " +
+            "user approves that card. For a plain-language request to deploy existing latest changes, call deploy_latest_agent_outpost without " +
             "asking the user for a SHA or CI status. Deployment validation belongs to the controller, not the user. " +
-            "Tell the user immediately when deployment has been scheduled.",
+            "Tell the user to review and approve the Deployment candidate card.",
         },
       };
       const metadata = await this.#client.getSessionMetadata(this.#sessionId);

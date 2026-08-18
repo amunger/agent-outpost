@@ -48,6 +48,7 @@ const storedKinds = new Set<OutpostEventKind>([
   "assistant.artifact",
   "session.state",
   "session.error",
+  "deployment.candidate",
   "system.notice",
 ]);
 
@@ -104,6 +105,38 @@ function parseRow(row: EventRow): OutpostEvent {
         break;
       }
       return { id: row.id, kind: row.kind, createdAt: row.created_at, payload: { message } };
+    }
+    case "deployment.candidate": {
+      const candidateId = stringProperty(payload, "candidateId");
+      const commitSha = stringProperty(payload, "commitSha");
+      const description = stringProperty(payload, "description");
+      const diffUrl = stringProperty(payload, "diffUrl");
+      const status = stringProperty(payload, "status");
+      const filesValue = (payload as Record<string, unknown>).files;
+      if (
+        candidateId === undefined ||
+        !/^[0-9a-f-]{36}$/.test(candidateId) ||
+        commitSha === undefined ||
+        !/^[0-9a-f]{40}$/.test(commitSha) ||
+        description === undefined ||
+        diffUrl === undefined ||
+        !["pending", "approved", "rejected"].includes(status ?? "") ||
+        !Array.isArray(filesValue)
+      ) break;
+      const files = filesValue.flatMap((file) => {
+        if (typeof file !== "object" || file === null) return [];
+        const path = stringProperty(file, "path");
+        const added = (file as Record<string, unknown>).added;
+        const removed = (file as Record<string, unknown>).removed;
+        return path !== undefined && Number.isSafeInteger(added) && Number.isSafeInteger(removed)
+          ? [{ path, added: added as number, removed: removed as number }]
+          : [];
+      });
+      if (files.length !== filesValue.length) break;
+      return { id: row.id, kind: row.kind, createdAt: row.created_at, payload: {
+        candidateId, commitSha, description, files, diffUrl,
+        status: status as "pending" | "approved" | "rejected",
+      }};
     }
     case "system.notice": {
       const message = stringProperty(payload, "message");

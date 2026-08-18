@@ -39,7 +39,7 @@ test("workspace preview serves local assets with read-only API fixtures", async 
       readonly events: readonly unknown[];
     };
     assert.equal(sessionBody.state, "idle");
-    assert.equal(sessionBody.events.length, 30);
+    assert.equal(sessionBody.events.length, 31);
 
     const chats = await fetch(`${baseUrl}/api/chats`);
     const chatsBody = await chats.json() as { readonly chats: readonly unknown[] };
@@ -90,6 +90,32 @@ test("chat selection and down-arrow controls scroll the timeline to the bottom",
     await page.locator("#scroll-to-bottom").waitFor({ state: "visible" });
     await page.locator("#scroll-to-bottom").click();
     await assertBottom(timeline);
+  } finally {
+    await browser.close();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test("workspace preview renders a deployment candidate approval card", async (context) => {
+  if (!existsSync(chromium.executablePath())) {
+    context.skip("Playwright Chromium is not installed in this environment");
+    return;
+  }
+  const server = createWorkspacePreviewServer(join(process.cwd(), "public"));
+  const browser = await chromium.launch({ headless: true });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.locator(".chat-entry").click();
+    const card = page.locator(".deployment-candidate");
+    await assert.equal(await card.locator("h2").textContent(), "Deployment candidate");
+    await assert.equal(await card.locator("button").textContent(), "Deploy");
+    await assert.equal(await card.locator("li").count(), 2);
   } finally {
     await browser.close();
     await new Promise<void>((resolve, reject) => {

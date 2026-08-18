@@ -129,6 +129,48 @@ function appendArtifactMessage(role, artifact, createdAt) {
   }
 }
 
+function appendDeploymentCandidate(candidate) {
+  const article = document.createElement("article");
+  article.className = "message deployment-candidate";
+  article.dataset.role = "assistant";
+  article.dataset.candidateId = candidate.candidateId;
+  const title = document.createElement("h2");
+  title.textContent = "Deployment candidate";
+  const description = document.createElement("p");
+  description.textContent = candidate.description;
+  const summary = document.createElement("p");
+  summary.textContent = `${candidate.commitSha} · ${candidate.files.length} modified file${candidate.files.length === 1 ? "" : "s"}`;
+  const files = document.createElement("ul");
+  candidate.files.forEach((file) => {
+    const item = document.createElement("li");
+    item.textContent = `${file.path} (+${file.added}/-${file.removed})`;
+    files.append(item);
+  });
+  const diff = document.createElement("a");
+  diff.href = candidate.diffUrl;
+  diff.textContent = "View full diff";
+  diff.target = "_blank";
+  diff.rel = "noopener noreferrer";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = candidate.status === "pending" ? "Deploy" : candidate.status[0].toUpperCase() + candidate.status.slice(1);
+  button.disabled = candidate.status !== "pending";
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    button.textContent = "Approving…";
+    try {
+      await request(`/api/deployment-candidates/${encodeURIComponent(candidate.candidateId)}/approve`, { method: "POST" });
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = "Deploy";
+      errorElement.textContent = error instanceof Error ? error.message : String(error);
+    }
+  });
+  article.append(title, description, summary, files, diff, button);
+  timeline.append(article);
+  if (autoScrollTimeline) scrollTimelineToBottom();
+}
+
 function appendMessage(role, content, createdAt, allowEmpty = false) {
   if (!allowEmpty && role !== "user" && !content.trim()) {
     return;
@@ -182,6 +224,10 @@ function handleEvent(event) {
       break;
     case "assistant.artifact":
       appendArtifactMessage("assistant", event.payload, event.createdAt);
+      break;
+    case "deployment.candidate":
+      document.querySelector(`[data-candidate-id="${CSS.escape(event.payload.candidateId)}"]`)?.remove();
+      appendDeploymentCandidate(event.payload, event.createdAt);
       break;
   }
 }
@@ -405,6 +451,7 @@ function connectEvents(after) {
     "session.state",
     "session.error",
     "system.notice",
+    "deployment.candidate",
   ];
   types.forEach((type) => {
     source.addEventListener(type, (message) => {
