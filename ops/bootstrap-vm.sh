@@ -11,10 +11,12 @@ apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   ca-certificates \
   bubblewrap \
+  build-essential \
   curl \
   git \
   gnupg \
   jq \
+  python3 \
   rsync \
   tmux
 

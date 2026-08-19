@@ -51,6 +51,9 @@ Copy the public repository to the VM, then run:
 sudo ./ops/bootstrap-vm.sh
 ```
 
+The bootstrap installs the native build toolchain (`make`, a C/C++ compiler,
+and Python) required when npm dependencies use `node-gyp`.
+
 ## 4. Enroll private access
 
 Create a Tailscale account, install Tailscale on the phone, and enroll the VM:
