@@ -26,6 +26,21 @@ export interface DeploymentToolOptions {
   readonly eventHub?: { publish(event: OutpostEvent, chatId?: string | null): void };
 }
 
+interface DeploymentBlockedResult {
+  readonly status: "blocked";
+  readonly error: string;
+  readonly message: string;
+}
+
+function blockedDeployment(error: unknown): DeploymentBlockedResult {
+  return {
+    status: "blocked",
+    error: error instanceof Error ? error.message : String(error),
+    message:
+      "Deployment was not scheduled and no candidate was created. Resolve this error before retrying.",
+  };
+}
+
 const safeGitConfiguration = [
   "-c",
   "core.hooksPath=/dev/null",
@@ -239,13 +254,17 @@ function exactDeploymentTool(options: DeploymentToolOptions): Tool<DeploymentArg
     defer: "never",
     skipPermission: true,
     handler: (value: DeploymentArguments) => {
-      const { commitSha } = validateArguments(value);
-      assertDeploymentWorkspace(options);
-      const head = git(options.workspace, ["rev-parse", "HEAD"]);
-      if (head !== commitSha) {
-        throw new Error(`Requested commit ${commitSha} is not the checked-out HEAD ${head}`);
+      try {
+        const { commitSha } = validateArguments(value);
+        assertDeploymentWorkspace(options);
+        const head = git(options.workspace, ["rev-parse", "HEAD"]);
+        if (head !== commitSha) {
+          throw new Error(`Requested commit ${commitSha} is not the checked-out HEAD ${head}`);
+        }
+        return createCandidate(options, commitSha);
+      } catch (error) {
+        return blockedDeployment(error);
       }
-      return createCandidate(options, commitSha);
     },
   });
 }
@@ -269,25 +288,29 @@ function latestDeploymentTool(
     defer: "never",
     skipPermission: true,
     handler: () => {
-      assertDeploymentWorkspace(options);
-      git(options.workspace, ["fetch", "--prune", "origin", integrationBranch]);
-      const head = git(options.workspace, ["rev-parse", "HEAD"]);
-      const remoteHead = git(options.workspace, ["rev-parse", remoteBranch]);
+      try {
+        assertDeploymentWorkspace(options);
+        git(options.workspace, ["fetch", "--prune", "origin", integrationBranch]);
+        const head = git(options.workspace, ["rev-parse", "HEAD"]);
+        const remoteHead = git(options.workspace, ["rev-parse", remoteBranch]);
 
-      if (head !== remoteHead) {
-        if (!isAncestor(options.workspace, head, remoteHead)) {
-          throw new Error(
-            `The local operator branch is ahead of or diverged from ${remoteBranch}; ` +
-              "publish or reconcile it before deployment",
-          );
+        if (head !== remoteHead) {
+          if (!isAncestor(options.workspace, head, remoteHead)) {
+            throw new Error(
+              `The local operator branch is ahead of or diverged from ${remoteBranch}; ` +
+                "publish or reconcile it before deployment",
+            );
+          }
+          git(options.workspace, ["merge", "--ff-only", remoteBranch]);
         }
-        git(options.workspace, ["merge", "--ff-only", remoteBranch]);
-      }
 
-      const commitSha = git(options.workspace, ["rev-parse", "HEAD"]);
-      return options.eventStore
-        ? createCandidate(options, commitSha)
-        : scheduleDeployment(options.requestDirectory, "latest", commitSha);
+        const commitSha = git(options.workspace, ["rev-parse", "HEAD"]);
+        return options.eventStore
+          ? createCandidate(options, commitSha)
+          : scheduleDeployment(options.requestDirectory, "latest", commitSha);
+      } catch (error) {
+        return blockedDeployment(error);
+      }
     },
   });
 }

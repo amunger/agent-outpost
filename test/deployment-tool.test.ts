@@ -131,19 +131,21 @@ test("deployment tool rejects a dirty workspace", async () => {
     });
 
     assert.ok(exact.handler);
-    await assert.rejects(
-      async () =>
-        exact.handler?.(
-          { commitSha },
-          {
-            sessionId: "test",
-            toolCallId: "dirty-1",
-            toolName: exact.name,
-            arguments: { commitSha },
-          },
-        ),
-      /clean/,
+    const result = await exact.handler?.(
+      { commitSha },
+      {
+        sessionId: "test",
+        toolCallId: "dirty-1",
+        toolName: exact.name,
+        arguments: { commitSha },
+      },
     );
+    assert.deepEqual(result, {
+      status: "blocked",
+      error: "The workspace must be clean before deployment",
+      message:
+        "Deployment was not scheduled and no candidate was created. Resolve this error before retrying.",
+    });
     assert.equal(existsSync(join(requests, "pending")), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -226,19 +228,21 @@ test("deployment tools reject mismatched fetch and push remotes", async () => {
     });
 
     assert.ok(exact.handler);
-    await assert.rejects(
-      async () =>
-        exact.handler?.(
-          { commitSha },
-          {
-            sessionId: "test",
-            toolCallId: "remote-1",
-            toolName: exact.name,
-            arguments: { commitSha },
-          },
-        ),
-      /fetch and push URLs/,
+    const result = await exact.handler?.(
+      { commitSha },
+      {
+        sessionId: "test",
+        toolCallId: "remote-1",
+        toolName: exact.name,
+        arguments: { commitSha },
+      },
     );
+    assert.deepEqual(result, {
+      status: "blocked",
+      error: "The origin fetch and push URLs must exactly match the registered project remote",
+      message:
+        "Deployment was not scheduled and no candidate was created. Resolve this error before retrying.",
+    });
     assert.equal(existsSync(join(requests, "pending")), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -269,19 +273,21 @@ test("deployment request publication does not replace an existing request", asyn
         arguments: { commitSha },
       },
     );
-    await assert.rejects(
-      async () =>
-        exact.handler?.(
-          { commitSha },
-          {
-            sessionId: "test",
-            toolCallId: "request-2",
-            toolName: exact.name,
-            arguments: { commitSha },
-          },
-        ),
-      /already pending/,
+    const result = await exact.handler?.(
+      { commitSha },
+      {
+        sessionId: "test",
+        toolCallId: "request-2",
+        toolName: exact.name,
+        arguments: { commitSha },
+      },
     );
+    assert.deepEqual(result, {
+      status: "blocked",
+      error: "A deployment request is already pending",
+      message:
+        "Deployment was not scheduled and no candidate was created. Resolve this error before retrying.",
+    });
     assert.equal(readFileSync(join(requests, "pending"), "utf8"), `${commitSha}\n`);
   } finally {
     rmSync(root, { recursive: true, force: true });
