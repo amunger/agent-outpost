@@ -12,6 +12,10 @@ const safeGitConfiguration = [
   "diff.external=",
   "-c",
   "core.pager=cat",
+  "-c",
+  "user.name=Agent Outpost",
+  "-c",
+  "user.email=agent-outpost@agent-outpost.local",
 ] as const;
 const dangerousLocalConfig =
   /^(?:alias\.|core\.(?:attributesfile|fsmonitor|hookspath|sshcommand)|credential\.|diff\.external|filter\.|include(?:if)?\.|merge\..*\.driver|url\.)/i;

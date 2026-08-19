@@ -62,6 +62,44 @@ test("publish tool stages, commits with trailer, and pushes agent/current", asyn
   }
 });
 
+test("publish tool supplies a commit identity when the repository has none", async () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-outpost-publish-identity-"));
+  const remote = join(root, "remote.git");
+  const repository = join(root, "repository");
+
+  try {
+    execFileSync("git", ["init", "--bare", remote]);
+    execFileSync("git", ["init", "--initial-branch=agent/current", repository]);
+    git(repository, ["remote", "add", "origin", remote]);
+    writeFileSync(join(repository, "README.md"), "initial\n");
+    git(repository, ["add", "README.md"]);
+    git(repository, ["-c", "user.name=Bootstrap", "-c", "user.email=bootstrap@example.com", "commit", "-m", "Initial"]);
+    git(repository, ["push", "--set-upstream", "origin", "agent/current"]);
+    writeFileSync(join(repository, "README.md"), "updated\n");
+
+    const [publish] = createRepositoryTools({
+      workspace: repository,
+      allowedGitRemote: remote,
+      githubRepository: "owner/repository",
+    });
+
+    const result = await publish.handler?.(
+      { message: "Publish without identity" },
+      {
+        sessionId: "test",
+        toolCallId: "publish-identity",
+        toolName: publish.name,
+        arguments: { message: "Publish without identity" },
+      },
+    );
+
+    assert.ok(result && typeof result === "object" && "status" in result && result.status === "published");
+    assert.equal(git(repository, ["log", "-1", "--format=%an <%ae>"]), "Agent Outpost <agent-outpost@agent-outpost.local>");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("publish tool uses the registered project's integration branch", async () => {
   const root = mkdtempSync(join(tmpdir(), "agent-outpost-project-publish-"));
   const remote = join(root, "remote.git");
