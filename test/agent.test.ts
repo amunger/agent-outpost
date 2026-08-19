@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { SessionEvent } from "@github/copilot-sdk";
+import type { AssistantMessageEvent, ModelInfo, SessionEvent } from "@github/copilot-sdk";
 
 import {
   CopilotAgent,
@@ -17,7 +18,7 @@ import { SseHub } from "../src/sse-hub.js";
 
 interface PendingTurn {
   readonly prompt: string;
-  readonly resolve: () => void;
+  readonly resolve: (response?: AssistantMessageEvent) => void;
 }
 
 interface FakeSession {
@@ -27,13 +28,119 @@ interface FakeSession {
   emit(event: SessionEvent): void;
 }
 
+function model(id: string, multiplier: number): ModelInfo {
+  return {
+    id,
+    name: id,
+    capabilities: {
+      supports: { vision: false, reasoningEffort: false },
+      limits: { max_context_window_tokens: 16_000 },
+    },
+    policy: { state: "enabled", terms: "" },
+    billing: { multiplier },
+  };
+}
+
+function assistantMessage(content: string): AssistantMessageEvent {
+  return {
+    type: "assistant.message",
+    id: randomUUID(),
+    parentId: null,
+    timestamp: new Date().toISOString(),
+    data: { content, messageId: randomUUID() },
+  };
+}
+
+test("A phone chat gets a short generated name while its first response completes", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agent-outpost-chat-title-"));
+  const workspace = join(directory, "workspace");
+  mkdirSync(workspace);
+  const eventStore = new EventStore(directory);
+  eventStore.ensureChat({
+    id: "primary-chat",
+    projectId: "agent-outpost",
+    name: "New chat",
+    repository: "owner/agent-outpost",
+    lastUsedAt: null,
+  });
+  const projects = new ProjectRegistry("agent-outpost", [
+    {
+      id: "agent-outpost",
+      name: "Agent Outpost",
+      repository: "owner/agent-outpost",
+      workspace,
+      integrationBranch: "agent/current",
+      deploymentTargetId: "agent-outpost",
+      deploymentRequestDirectory: join(directory, "deploy-requests"),
+      validationProfile: "agent-outpost",
+      workspacePreview: "none",
+    },
+  ]);
+  const eventHub = new SseHub();
+  const { client, sessions, sessionModels, models } = createFakeCopilotClient();
+  models.push(model("expensive-model", 5), model("cheap-model", 0.5));
+  const agent = new CopilotAgent({
+    workspace,
+    sessionId: "primary-chat",
+    model: "expensive-model",
+    deploymentRequestDirectory: join(directory, "deploy-requests"),
+    artifactDirectory: join(directory, "artifacts"),
+    eventStore,
+    eventHub,
+    projects,
+    resolveProjectId: (chatId) => eventStore.getChat(chatId)?.projectId,
+    client,
+  });
+
+  try {
+    await agent.start();
+    await agent.send("Automatically name completed chat sessions", "primary-chat");
+    const mainSession = sessions.get("primary-chat");
+    assert.ok(mainSession);
+    mainSession.pendingTurns[0]?.resolve(
+      assistantMessage("I implemented automatic chat naming."),
+    );
+
+    let titleEntry: [string, FakeSession] | undefined;
+    for (let attempt = 0; attempt < 20 && !titleEntry; attempt += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      titleEntry = [...sessions.entries()].find(([id]) => id.startsWith("title-"));
+    }
+    assert.ok(titleEntry);
+    assert.equal(sessionModels.get(titleEntry[0]), "cheap-model");
+    assert.match(
+      titleEntry[1].pendingTurns[0]?.prompt ?? "",
+      /Automatically name completed chat sessions/,
+    );
+    titleEntry[1].pendingTurns[0]?.resolve(assistantMessage("Automatic Chat Titles"));
+
+    for (
+      let attempt = 0;
+      attempt < 20 && eventStore.getChat("primary-chat")?.name === "New chat";
+      attempt += 1
+    ) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    assert.equal(eventStore.getChat("primary-chat")?.name, "Automatic Chat Titles");
+  } finally {
+    await agent.stop();
+    eventHub.close();
+    eventStore[Symbol.dispose]();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 function createFakeCopilotClient(): {
   readonly client: CopilotClientAdapter;
   readonly sessions: Map<string, FakeSession>;
   readonly workingDirectories: Map<string, string>;
+  readonly sessionModels: Map<string, string>;
+  readonly models: ModelInfo[];
 } {
   const sessions = new Map<string, FakeSession>();
   const workingDirectories = new Map<string, string>();
+  const sessionModels = new Map<string, string>();
+  const models: ModelInfo[] = [];
 
   function createSession(): FakeSession {
     const listeners = new Set<(event: SessionEvent) => void>();
@@ -49,10 +156,9 @@ function createFakeCopilotClient(): {
         return () => listeners.delete(listener);
       },
       sendAndWait: async ({ prompt }) => {
-        await new Promise<void>((resolve) => {
+        return new Promise<AssistantMessageEvent | undefined>((resolve) => {
           pendingTurns.push({ prompt, resolve });
         });
-        return undefined;
       },
     };
     return {
@@ -72,8 +178,12 @@ function createFakeCopilotClient(): {
   const client: CopilotClientAdapter = {
     start: async () => {},
     stop: async () => [],
-    listModels: async () => [],
+    listModels: async () => models,
     getSessionMetadata: async () => undefined,
+    deleteSession: async (sessionId) => {
+      sessions.delete(sessionId);
+      workingDirectories.delete(sessionId);
+    },
     createSession: async (options) => {
       if (!options.sessionId) {
         throw new Error("Fake Copilot sessions require a sessionId");
@@ -84,6 +194,9 @@ function createFakeCopilotClient(): {
       const session = createSession();
       sessions.set(options.sessionId, session);
       workingDirectories.set(options.sessionId, options.workingDirectory);
+      if (options.model) {
+        sessionModels.set(options.sessionId, options.model);
+      }
       return session.adapter;
     },
     resumeSession: async (sessionId) => {
@@ -92,7 +205,7 @@ function createFakeCopilotClient(): {
       return session.adapter;
     },
   };
-  return { client, sessions, workingDirectories };
+  return { client, sessions, workingDirectories, sessionModels, models };
 }
 
 test("A phone can use different projects concurrently without crossing workspaces", async () => {

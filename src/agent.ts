@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import {
@@ -51,6 +52,7 @@ export interface CopilotClientAdapter {
   getSessionMetadata(
     sessionId: string,
   ): ReturnType<CopilotClient["getSessionMetadata"]>;
+  deleteSession(sessionId: string): ReturnType<CopilotClient["deleteSession"]>;
   createSession(
     options: Parameters<CopilotClient["createSession"]>[0],
   ): Promise<CopilotSessionAdapter>;
@@ -85,6 +87,32 @@ function modelId(model: ModelInfo): string | undefined {
   return typeof model.id === "string" ? model.id : undefined;
 }
 
+function cheapestModel(models: readonly ModelInfo[]): ModelInfo | undefined {
+  const enabled = models.filter((model) => model.policy?.state !== "disabled");
+  return enabled
+    .filter((model) => typeof model.billing?.multiplier === "number")
+    .sort(
+      (left, right) =>
+        (left.billing?.multiplier ?? Number.POSITIVE_INFINITY) -
+          (right.billing?.multiplier ?? Number.POSITIVE_INFINITY) ||
+        left.id.localeCompare(right.id),
+    )[0] ??
+    ["gpt-5-mini", "claude-haiku-4.5"]
+      .map((id) => enabled.find((model) => model.id === id))
+      .find((model) => model !== undefined) ??
+    enabled[0];
+}
+
+function chatTitle(value: string): string | undefined {
+  const title = value
+    .trim()
+    .split(/\r?\n/, 1)[0]
+    ?.replace(/^["'`]+|["'`.:;!?]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return title && title.length <= 100 ? title : title?.slice(0, 100).trim();
+}
+
 interface ChatRuntime {
   readonly session: CopilotSessionAdapter;
   readonly projectId: string;
@@ -111,6 +139,7 @@ export class CopilotAgent implements AgentController {
   readonly #runtimes = new Map<string, ChatRuntime>();
   readonly #startingRuntimes = new Map<string, Promise<ChatRuntime>>();
   readonly #activeProjectTurns = new Map<string, string>();
+  #titleModelPromise: Promise<ModelInfo | undefined> | undefined;
   #startupState: AgentState = "starting";
 
   public constructor(options: CopilotAgentOptions) {
@@ -285,7 +314,10 @@ export class CopilotAgent implements AgentController {
 
   async #processTurn(runtime: ChatRuntime, message: string, chatId: string): Promise<void> {
     try {
-      await runtime.session.sendAndWait({ prompt: message }, 30 * 60 * 1_000);
+      const response = await runtime.session.sendAndWait({ prompt: message }, 30 * 60 * 1_000);
+      if (response) {
+        await this.#nameChat(chatId, message, response.data.content);
+      }
     } catch (error) {
       const failure = this.#eventStore.append(
         {
@@ -296,6 +328,64 @@ export class CopilotAgent implements AgentController {
       );
       this.#publishStored(failure, chatId);
       this.#setState(runtime, chatId, "failed");
+    }
+  }
+
+  async #nameChat(chatId: string, userMessage: string, assistantMessage: string): Promise<void> {
+    const current = this.#eventStore.getChat(chatId);
+    if (!current || !["New chat", "Mobile agent"].includes(current.name)) {
+      return;
+    }
+    try {
+      this.#titleModelPromise ??= this.#client.listModels().then(cheapestModel);
+      const model = await this.#titleModelPromise;
+      if (!model) {
+        throw new Error("No Copilot model is available for chat titles");
+      }
+      const titleSessionId = `title-${randomUUID()}`;
+      let titleSession: CopilotSessionAdapter | undefined;
+      try {
+        titleSession = await this.#client.createSession({
+          sessionId: titleSessionId,
+          clientName: "agent-outpost-chat-title",
+          workingDirectory: this.#projectForChat(chatId).workspace,
+          model: model.id,
+          streaming: false,
+          enableExperimentalMode: false,
+          enableConfigDiscovery: false,
+          skipCustomInstructions: true,
+          enableSkills: false,
+          infiniteSessions: { enabled: false },
+          tools: [],
+          availableTools: [],
+          systemMessage: {
+            mode: "replace",
+            content:
+              "Write a very short title for a software-development chat. " +
+              "Return only a plain title of two to six words, without quotes or punctuation.",
+          },
+        });
+        const response = await titleSession.sendAndWait(
+          {
+            prompt:
+              `User request:\n${userMessage.slice(0, 4_000)}\n\n` +
+              `Assistant response:\n${assistantMessage.slice(0, 4_000)}`,
+          },
+          30_000,
+        );
+        const title = response ? chatTitle(response.data.content) : undefined;
+        const latest = this.#eventStore.getChat(chatId);
+        if (title && latest && ["New chat", "Mobile agent"].includes(latest.name)) {
+          this.#eventStore.renameChat(chatId, title);
+        }
+      } finally {
+        if (titleSession) {
+          await titleSession.disconnect();
+          await this.#client.deleteSession(titleSessionId);
+        }
+      }
+    } catch (error) {
+      console.error(`Could not generate a title for chat ${chatId}: ${errorMessage(error)}`);
     }
   }
 
