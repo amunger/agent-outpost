@@ -12,7 +12,10 @@ import {
 import type { AgentState, OutpostEvent } from "./domain.js";
 import { EventStore } from "./event-store.js";
 import { createDeploymentTools } from "./deployment-tool.js";
-import { createRepositoryTools } from "./repository-tools.js";
+import {
+  createAgentOutpostRestrictionIssueTool,
+  createRepositoryTools,
+} from "./repository-tools.js";
 import { createScreenshotTool } from "./screenshot-tool.js";
 import { createWorkspaceTools } from "./workspace-tools.js";
 import { createPermissionHandler } from "./permission-policy.js";
@@ -399,6 +402,17 @@ export class CopilotAgent implements AgentController {
             integrationBranch: project.integrationBranch,
             githubRepository: project.githubRepository,
           });
+    const agentOutpostIssueRepository =
+      this.#projects?.defaultProject.githubRepository ?? this.#githubRepository;
+    const restrictionIssueTools =
+      agentOutpostIssueRepository === undefined
+        ? []
+        : [
+            createAgentOutpostRestrictionIssueTool({
+              workspace: project.workspace,
+              githubRepository: agentOutpostIssueRepository,
+            }),
+          ];
     const workspaceTools = createWorkspaceTools(project.workspace);
     const screenshotTools =
       this.#tailscaleUser === undefined || project.workspacePreview === "none"
@@ -437,7 +451,13 @@ export class CopilotAgent implements AgentController {
         project.allowedGitRemote,
         project.validationProfile,
       ),
-      tools: [...deploymentTools, ...repositoryTools, ...workspaceTools, ...screenshotTools],
+      tools: [
+        ...deploymentTools,
+        ...repositoryTools,
+        ...restrictionIssueTools,
+        ...workspaceTools,
+        ...screenshotTools,
+      ],
       systemMessage: {
         mode: "append" as const,
         content:
@@ -449,6 +469,9 @@ export class CopilotAgent implements AgentController {
           `Publishing requires the ${project.integrationBranch} branch. If a typed tool returns status blocked, report its ` +
           "error and do not retry until the cause is resolved. " +
           "Use create_agent_outpost_issue instead of the gh shell command. " +
+          "When reporting an Agent Outpost restriction or operator failure, use " +
+          "create_agent_outpost_restriction_issue so the report goes to the Outpost repository even when " +
+          "the active project is different. " +
           "If apply_patch is unavailable, use replace_workspace_text or create_workspace_file. " +
           screenshotInstructions +
           "After publishing changes, call deploy_agent_outpost internally with the returned commit SHA; this creates " +

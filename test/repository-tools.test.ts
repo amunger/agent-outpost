@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { createRepositoryTools } from "../src/repository-tools.js";
+import {
+  createAgentOutpostRestrictionIssueTool,
+  createRepositoryTools,
+} from "../src/repository-tools.js";
 
 function git(workspace: string, args: readonly string[]): string {
   return execFileSync("git", args, { cwd: workspace, encoding: "utf8" }).trim();
@@ -148,6 +151,44 @@ test("issue tool uses the configured repository and returns the issue URL", asyn
         "Issue body",
       ],
     },
+  ]);
+});
+
+test("A phone agent in another project can report an Outpost restriction to Agent Outpost", async () => {
+  const calls: Array<{ executable: string; args: readonly string[] }> = [];
+  const createRestrictionIssue = createAgentOutpostRestrictionIssueTool({
+    workspace: process.cwd(),
+    githubRepository: "amunger/agent-outpost",
+    commandRunner: (executable, args) => {
+      calls.push({ executable, args });
+      return "https://github.com/amunger/agent-outpost/issues/456";
+    },
+  });
+
+  const result = await createRestrictionIssue.handler?.(
+    {
+      title: "Registered workspace is read-only",
+      body: "The active project cannot edit its registered workspace.",
+    },
+    {
+      sessionId: "collected-recipes-chat",
+      toolCallId: "restriction-issue",
+      toolName: createRestrictionIssue.name,
+      arguments: {},
+    },
+  );
+
+  assert.deepEqual(result, {
+    status: "created",
+    issueUrl: "https://github.com/amunger/agent-outpost/issues/456",
+    title: "Registered workspace is read-only",
+  });
+  assert.deepEqual(calls[0]?.args.slice(0, 5), [
+    "issue",
+    "create",
+    "--repo",
+    "amunger/agent-outpost",
+    "--title",
   ]);
 });
 

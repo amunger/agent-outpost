@@ -136,7 +136,7 @@ for unit in \
     "${source_directory}/ops/${unit}" \
     "/etc/systemd/system/${unit}"
 done
-for unit in agent-outpost-deploy.service agent-outpost-deploy.path; do
+for unit in agent-outpost@.service agent-outpost.service agent-outpost-deploy.service agent-outpost-deploy.path; do
   install -o root -g root -m 0644 \
     "${source_directory}/ops/${unit}" \
     "/etc/systemd/system/${unit}"

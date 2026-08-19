@@ -89,6 +89,10 @@ These controls reduce path and prompt-injection risk. The VM account still has
 the underlying workspace permissions, so changes to this boundary require
 careful review.
 
+The systemd sandbox exposes the original workspace and the registered projects
+root as writable. Per-session permission handlers and typed tools still resolve
+every operation against only the active project's configured workspace.
+
 ## Git publishing
 
 The publisher:
@@ -156,6 +160,10 @@ identity resolves to exactly one registered workspace, remote, branch,
 validation profile, issue repository, and deployment request spool. The mobile
 API does not turn every repository visible to GitHub CLI into a trusted
 project, and turns that share one checkout are serialized.
+
+Every registered project also receives a separate typed issue capability scoped
+only to the Agent Outpost repository so agents can report Outpost restrictions
+without gaining arbitrary cross-repository issue access.
 
 Each deployment target keeps its own privileged adapter. Collected Recipes uses
 a credential-free rootless build identity and a separate secret-bearing

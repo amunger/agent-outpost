@@ -45,6 +45,19 @@ export interface RepositoryToolOptions {
   readonly commandRunner?: CommandRunner;
 }
 
+export interface AgentOutpostIssueToolOptions {
+  readonly workspace: string;
+  readonly githubRepository: string;
+  readonly commandRunner?: CommandRunner;
+}
+
+interface IssueToolOptions {
+  readonly name: string;
+  readonly description: string;
+  readonly workspace: string;
+  readonly githubRepository: string;
+}
+
 function defaultCommandRunner(
   executable: string,
   args: readonly string[],
@@ -234,11 +247,9 @@ function publishTool(options: RepositoryToolOptions, run: CommandRunner): Tool<P
   });
 }
 
-function issueTool(options: RepositoryToolOptions, run: CommandRunner): Tool<IssueArguments> {
-  return defineTool<IssueArguments>("create_agent_outpost_issue", {
-    description:
-      `Create an issue in the configured ${options.projectName ?? "Agent Outpost"} GitHub repository. ` +
-      "Use this instead of running gh from the shell.",
+function issueTool(options: IssueToolOptions, run: CommandRunner): Tool<IssueArguments> {
+  return defineTool<IssueArguments>(options.name, {
+    description: options.description,
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -274,5 +285,34 @@ export function createRepositoryTools(
   options: RepositoryToolOptions,
 ): [Tool<PublishArguments>, Tool<IssueArguments>] {
   const run = options.commandRunner ?? defaultCommandRunner;
-  return [publishTool(options, run), issueTool(options, run)];
+  return [
+    publishTool(options, run),
+    issueTool(
+      {
+        name: "create_agent_outpost_issue",
+        description:
+          `Create an issue in the configured ${options.projectName ?? "Agent Outpost"} GitHub repository. ` +
+          "Use this instead of running gh from the shell.",
+        workspace: options.workspace,
+        githubRepository: options.githubRepository,
+      },
+      run,
+    ),
+  ];
+}
+
+export function createAgentOutpostRestrictionIssueTool(
+  options: AgentOutpostIssueToolOptions,
+): Tool<IssueArguments> {
+  return issueTool(
+    {
+      name: "create_agent_outpost_restriction_issue",
+      description:
+        "Create an issue in the Agent Outpost repository about an Outpost restriction or operator failure. " +
+        "This remains available when the active project is a different repository.",
+      workspace: options.workspace,
+      githubRepository: options.githubRepository,
+    },
+    options.commandRunner ?? defaultCommandRunner,
+  );
 }
