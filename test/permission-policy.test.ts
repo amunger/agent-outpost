@@ -96,6 +96,38 @@ test("permission policy applies the registered validation profile", async () => 
   assert.equal((await nextHandler(request, invocation)).kind, "approve-once");
 });
 
+test("permission policy allows safe dependency installation flags", async () => {
+  const request = {
+    kind: "shell",
+    fullCommandText: "npm install --no-audit --no-fund",
+    intention: "Install project dependencies for validation",
+    commands: [{ identifier: "npm", readOnly: false }],
+    commandSegments: [{ identifier: "npm", fullCommandText: "npm install --no-audit --no-fund" }],
+    possiblePaths: [workspace],
+    possibleUrls: [],
+    hasWriteFileRedirection: false,
+    canOfferSessionApproval: false,
+  } satisfies PermissionRequest;
+
+  assert.equal((await handler(request, invocation)).kind, "approve-once");
+});
+
+test("permission policy rejects unsupported npm installation flags", async () => {
+  const request = {
+    kind: "shell",
+    fullCommandText: "npm install --package-lock-only",
+    intention: "Install project dependencies",
+    commands: [{ identifier: "npm", readOnly: false }],
+    commandSegments: [{ identifier: "npm", fullCommandText: "npm install --package-lock-only" }],
+    possiblePaths: [workspace],
+    possibleUrls: [],
+    hasWriteFileRedirection: false,
+    canOfferSessionApproval: false,
+  } satisfies PermissionRequest;
+
+  assert.equal((await handler(request, invocation)).kind, "reject");
+});
+
 test("permission policy allows read-only diff validation", async () => {
   const request = {
     kind: "shell",

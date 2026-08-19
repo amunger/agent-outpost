@@ -27,9 +27,16 @@ const allowedGitSegments = [
   /^git\s+status(?:\s+--short)?$/i,
   /^git\s+(?:diff|log|show|branch|rev-parse)(?:\s+[-\w./:^=]+)*$/i,
 ];
+const safeNpmInstallOptions = "(?:\\s+--(?:no-audit|no-fund))*";
 const allowedNpmSegments: Readonly<Record<ProjectValidationProfile, RegExp>> = {
-  "agent-outpost": /^npm\s+(?:ci|install|test|run\s+(?:build|test|typecheck))$/i,
-  "node-nextjs": /^npm\s+(?:ci|install|test|run\s+(?:build|lint|test))$/i,
+  "agent-outpost": new RegExp(
+    `^npm\\s+(?:(?:ci|install)${safeNpmInstallOptions}|test|run\\s+(?:build|test|typecheck))$`,
+    "i",
+  ),
+  "node-nextjs": new RegExp(
+    `^npm\\s+(?:(?:ci|install)${safeNpmInstallOptions}|test|run\\s+(?:build|lint|test))$`,
+    "i",
+  ),
 };
 
 function reject(feedback: string): PermissionRequestResult {
