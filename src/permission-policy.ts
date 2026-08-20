@@ -27,9 +27,6 @@ const allowedGitSegments = [
   /^git(?:\s+--no-pager)?\s+status(?:\s+--short)?$/i,
   /^git(?:\s+--no-pager)?\s+(?:diff|log|show|branch|rev-parse)(?:\s+[-\w./:^=]+)*$/i,
 ];
-const allowedWorkspaceSearchSegments = [
-  /^rg(?!\s+--pre(?:=|\s|$))\s+[^;&|`><]+$/i,
-];
 const safeNpmInstallOptions = "(?:\\s+--(?:no-audit|no-fund))*";
 const allowedNpmSegments: Readonly<Record<ProjectValidationProfile, RegExp>> = {
   "agent-outpost": new RegExp(
@@ -132,11 +129,10 @@ function approveShellRequest(
     !segments.every(
       (segment) =>
         allowedGitSegments.some((pattern) => pattern.test(segment)) ||
-        allowedWorkspaceSearchSegments.some((pattern) => pattern.test(segment)) ||
         allowedNpmSegments[validationProfile].test(segment),
     )
   ) {
-    return reject("Only constrained Git, workspace search, and npm validation commands are allowlisted");
+    return reject("Only constrained Git and npm validation commands are allowlisted");
   }
   if (!request.possiblePaths.every((candidate) => isWithinWorkspace(workspace, candidate))) {
     return reject("The command may access a path outside the configured workspace");

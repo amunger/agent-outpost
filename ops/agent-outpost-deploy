@@ -130,7 +130,8 @@ if [[ ! -d "${release_directory}" ]]; then
   printf '%s\n' "${commit_sha}" > "${partial_release}/.agent-outpost-commit"
   chown -R root:root "${partial_release}"
   find "${partial_release}" -type d -exec chmod 0755 {} +
-  find "${partial_release}" -type f -exec chmod 0644 {} +
+  find "${partial_release}" -type f ! -perm /0111 -exec chmod 0644 {} +
+  find "${partial_release}" -type f -perm /0111 -exec chmod 0755 {} +
   touch "${partial_release}/.complete"
   mv -T "${partial_release}" "${release_directory}"
 elif [[ ! -f "${release_directory}/.complete" ]]; then

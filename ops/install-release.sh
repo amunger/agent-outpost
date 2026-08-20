@@ -47,7 +47,8 @@ runuser -u agent-outpost -- git -C "${source_directory}" rev-parse HEAD \
   > "${release_directory}/.agent-outpost-commit"
 chown -R root:root "${release_directory}"
 find "${release_directory}" -type d -exec chmod 0755 {} +
-find "${release_directory}" -type f -exec chmod 0644 {} +
+find "${release_directory}" -type f ! -perm /0111 -exec chmod 0644 {} +
+find "${release_directory}" -type f -perm /0111 -exec chmod 0755 {} +
 
 ln -sfn "${release_directory}" /opt/agent-outpost/current.next
 mv -Tf /opt/agent-outpost/current.next /opt/agent-outpost/current
