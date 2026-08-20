@@ -215,18 +215,14 @@ function appendMessage(role, content, createdAt, allowEmpty = false) {
   article.dataset.role = role;
   const metadata = document.createElement("small");
   metadata.textContent = `${role === "user" ? "You" : role === "error" ? "Error" : "Agent"} · ${new Date(createdAt).toLocaleTimeString()}`;
-  const reasoningLabel = document.createElement("span");
-  reasoningLabel.className = "reasoning-label";
-  reasoningLabel.textContent = "reasoning…";
-  reasoningLabel.hidden = true;
   const text = document.createElement("div");
   renderContent(text, content);
-  article.append(metadata, reasoningLabel, text);
+  article.append(metadata, text);
   appendTimelineElement(article, role);
   if (autoScrollTimeline) {
     scrollTimelineToBottom();
   }
-  return { article, text, reasoningLabel };
+  return { article, text };
 }
 
 function handleEvent(event) {
@@ -236,11 +232,10 @@ function handleEvent(event) {
       break;
     case "assistant.message":
       if (streamingMessage) {
-        const { article, text, reasoningLabel } = streamingMessage;
+        const { article, text } = streamingMessage;
         renderContent(text, event.payload.content);
-        article.classList.remove("message-reasoning");
+        article.classList.remove("message-working");
         article.classList.add("message-replaced");
-        reasoningLabel.hidden = true;
         window.setTimeout(() => article.classList.remove("message-replaced"), 280);
         streamingMessage = undefined;
       } else {
@@ -249,11 +244,9 @@ function handleEvent(event) {
       break;
     case "assistant.delta":
       if (!streamingMessage) {
-        streamingMessage = appendMessage("assistant", "", event.createdAt, true);
-        streamingMessage.article.classList.add("message-reasoning");
-        streamingMessage.reasoningLabel.hidden = false;
+        streamingMessage = appendMessage("assistant", "Working…", event.createdAt);
+        streamingMessage.article.classList.add("message-working");
       }
-      streamingMessage.text.append(document.createTextNode(event.payload.content));
       if (autoScrollTimeline) {
         scrollTimelineToBottom();
       }
@@ -491,7 +484,12 @@ async function openChat(chat) {
 }
 
 async function loadSession(chatId) {
-  return request(`/api/session?chatId=${encodeURIComponent(chatId)}`);
+  const scenario = new URLSearchParams(window.location.search).get("scenario");
+  const params = new URLSearchParams({ chatId });
+  if (scenario) {
+    params.set("scenario", scenario);
+  }
+  return request(`/api/session?${params}`);
 }
 
 function connectEvents(after, chatId) {

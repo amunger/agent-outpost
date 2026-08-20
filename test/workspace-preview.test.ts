@@ -146,6 +146,73 @@ test("workspace preview renders a deployment candidate approval card", async (co
   }
 });
 
+test("workspace preview keeps streamed deltas text-free in Working state", async (context) => {
+  if (!existsSync(chromium.executablePath())) {
+    context.skip("Playwright Chromium is not installed in this environment");
+    return;
+  }
+  const server = createWorkspacePreviewServer(join(process.cwd(), "public"));
+  const browser = await chromium.launch({ headless: true });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await page.goto(`http://127.0.0.1:${port}/?scenario=working`);
+    await page.locator(".chat-entry").click();
+
+    const messages = page.locator("#timeline > .message");
+    await messages.nth(1).waitFor({ state: "visible" });
+    assert.equal(await messages.count(), 2);
+    assert.equal(await messages.nth(1).textContent().then((value) => value?.includes("Working…")), true);
+    assert.equal(await messages.nth(1).textContent().then((value) => value?.includes("delta")), false);
+    assert.equal(await page.locator(".message-working").count(), 1);
+  } finally {
+    await browser.close();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test("workspace preview replaces Working state with exactly one completed response on mobile", async (context) => {
+  if (!existsSync(chromium.executablePath())) {
+    context.skip("Playwright Chromium is not installed in this environment");
+    return;
+  }
+  const server = createWorkspacePreviewServer(join(process.cwd(), "public"));
+  const browser = await chromium.launch({ headless: true });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await page.goto(`http://127.0.0.1:${port}/?scenario=completed`);
+    await page.locator(".chat-entry").click();
+
+    const messages = page.locator("#timeline > .message");
+    await messages.nth(1).waitFor({ state: "visible" });
+    assert.equal(await messages.count(), 2);
+    assert.equal(await page.locator(".message-working").count(), 0);
+    assert.equal(
+      await messages.nth(1).textContent().then((value) =>
+        value?.includes("The completed assistant response appears exactly once."),
+      ),
+      true,
+    );
+    assert.equal(await messages.nth(1).textContent().then((value) => value?.includes("delta")), false);
+    assert.equal(
+      await page.locator("body").evaluate((element) => element.scrollWidth <= element.clientWidth),
+      true,
+    );
+  } finally {
+    await browser.close();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
 async function assertBottom(locator: import("playwright").Locator): Promise<void> {
   await assert.doesNotReject(async () => {
     await locator.evaluate(async (element) => {
@@ -199,9 +266,20 @@ test("screenshot tool verifies workspace conversation scrolling with typed actio
         toolName: tool.name,
         arguments: { source: "workspace", viewport: "mobile", actions },
       },
-    ) as { readonly artifactUrl: string; readonly source: string };
+    ) as {
+      readonly artifactUrl: string;
+      readonly source: string;
+      readonly binaryResultsForLlm?: readonly { readonly data: string; readonly mimeType: string }[];
+      readonly textResultForLlm?: string;
+      readonly diagnostics?: { readonly body: { readonly scrollWidth: number; readonly clientWidth: number } };
+    };
 
     assert.equal(result.source, "workspace");
+    assert.equal(result.binaryResultsForLlm?.[0]?.mimeType, "image/png");
+    assert.ok(result.binaryResultsForLlm?.[0]?.data.length);
+    assert.match(result.textResultForLlm ?? "", /"consoleErrors":\[/);
+    assert.ok(result.diagnostics);
+    assert.equal(result.diagnostics.body.scrollWidth <= result.diagnostics.body.clientWidth, true);
     assert.equal(existsSync(join(artifactDirectory, result.artifactUrl.split("/").at(-1) ?? "")), true);
     assert.equal(eventStore.list().at(-1)?.kind, "assistant.artifact");
   } finally {

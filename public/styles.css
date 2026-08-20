@@ -318,7 +318,7 @@ select {
   overflow-wrap: anywhere;
 }
 
-.message-reasoning {
+.message-working {
   animation: reasoning-replace 0.28s ease-out;
 }
 
@@ -326,14 +326,9 @@ select {
   animation: reasoning-replace 0.28s ease-out;
 }
 
-.reasoning-label {
-  display: block;
-  margin-bottom: 0.35rem;
+.message-working div:last-child {
   color: #5eead4;
-  font-size: 0.72rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: lowercase;
 }
 
 @keyframes reasoning-replace {

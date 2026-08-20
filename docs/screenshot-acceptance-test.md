@@ -26,6 +26,10 @@ tools, API paths, or artifact URLs.
    the new JavaScript and CSS immediately; it does not need a manual
    hard-refresh or cache clear to see the update, because the mobile
    JavaScript and CSS are served with `Cache-Control: no-cache`.
+7. Workspace validation may use the structured `working` and `completed`
+   preview fixtures; the screenshot tool also returns the PNG to the selected
+   model with a concise DOM/accessibility summary and browser console/page
+   diagnostics.
 
 ## Out of scope
 

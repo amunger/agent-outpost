@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 
-import { defineTool, type Tool } from "@github/copilot-sdk";
+import { defineTool, type Tool, type ToolResultObject } from "@github/copilot-sdk";
 import { chromium, type Browser } from "playwright";
 
 import { createWorkspacePreviewServer } from "./http-server.js";
@@ -27,6 +27,7 @@ interface ScreenshotArguments {
   readonly viewport?: "mobile" | "desktop";
   readonly fullPage?: boolean;
   readonly source?: "deployed" | "workspace";
+  readonly scenario?: "default" | "working" | "completed";
   readonly actions?: readonly ScreenshotAction[];
 }
 
@@ -108,6 +109,11 @@ export function createScreenshotTool(
         viewport: { type: "string", enum: ["mobile", "desktop"] },
         fullPage: { type: "boolean" },
         source: { type: "string", enum: ["deployed", "workspace"] },
+        scenario: {
+          type: "string",
+          enum: ["default", "working", "completed"],
+          description: "Workspace-only structured event fixture to render before capture.",
+        },
         actions: {
           type: "array",
           maxItems: 20,
@@ -136,7 +142,11 @@ export function createScreenshotTool(
       try {
         const viewportName = value.viewport ?? "mobile";
         const source = value.source ?? "deployed";
+        const scenario = value.scenario ?? "default";
         const actions = value.actions ?? [];
+        if (source === "deployed" && scenario !== "default") {
+          throw new Error("Workspace scenarios are not available for deployed captures");
+        }
         for (const action of actions) {
           if (action.type === "fill" && action.value === undefined) {
             throw new Error(`Fill action for ${action.selector} requires a value`);
@@ -172,9 +182,15 @@ export function createScreenshotTool(
           source === "workspace"
             ? await startWorkspacePreview(options.workspacePublicDirectory)
             : undefined;
-        const targetUrl = preview?.url ?? "http://127.0.0.1:3000/";
+        const targetUrl =
+          preview && scenario !== "default"
+            ? `${preview.url}?scenario=${encodeURIComponent(scenario)}`
+            : preview?.url ?? "http://127.0.0.1:3000/";
         let browser: Browser | undefined;
         let captured = false;
+        let diagnostics: Record<string, unknown> | undefined;
+        const consoleErrors: string[] = [];
+        const pageErrors: string[] = [];
         try {
           browser = await chromium.launch({ headless: true });
           const context = await browser.newContext({
@@ -184,6 +200,14 @@ export function createScreenshotTool(
             },
           });
           const page = await context.newPage();
+          page.on("console", (message) => {
+            if (message.type() === "error") {
+              consoleErrors.push(message.text());
+            }
+          });
+          page.on("pageerror", (error) => {
+            pageErrors.push(error.message);
+          });
           await page.goto(targetUrl, {
             waitUntil: "domcontentloaded",
             timeout: 30_000,
@@ -235,6 +259,48 @@ export function createScreenshotTool(
             fullPage: value.fullPage ?? false,
             type: "png",
           });
+          diagnostics = await page.evaluate(() => {
+            type ElementSummary = {
+              readonly tagName: string;
+              readonly textContent: string | null;
+              getAttribute(name: string): string | null;
+            };
+            const doc = (
+              globalThis as unknown as {
+                readonly document: {
+                  readonly title: string;
+                  readonly body: {
+                    readonly innerText: string;
+                    readonly scrollWidth: number;
+                    readonly clientWidth: number;
+                    readonly scrollHeight: number;
+                    readonly clientHeight: number;
+                  };
+                  querySelectorAll(selector: string): ArrayLike<ElementSummary>;
+                };
+              }
+            ).document;
+            const visibleText = doc.body.innerText.replace(/\s+/g, " ").trim();
+            const labelled = Array.from(doc.querySelectorAll("[aria-label], [role]"))
+              .slice(0, 20)
+              .map((element) => ({
+                tag: element.tagName.toLowerCase(),
+                role: element.getAttribute("role"),
+                ariaLabel: element.getAttribute("aria-label"),
+                text: (element.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+              }));
+            return {
+              title: doc.title,
+              visibleText: visibleText.slice(0, 1_000),
+              labelled,
+              body: {
+                scrollWidth: doc.body.scrollWidth,
+                clientWidth: doc.body.clientWidth,
+                scrollHeight: doc.body.scrollHeight,
+                clientHeight: doc.body.clientHeight,
+              },
+            };
+          });
           captured = true;
         } finally {
           try {
@@ -267,18 +333,41 @@ export function createScreenshotTool(
         );
         options.eventHub.publish(stored, options.chatId ?? null);
 
-        return {
+        const result: ToolResultObject & Record<string, unknown> = {
+          textResultForLlm: JSON.stringify({
+            status: "captured",
+            source,
+            viewport: viewportName,
+            scenario,
+            domAccessibility: diagnostics,
+            consoleErrors,
+            pageErrors,
+          }),
+          binaryResultsForLlm: [
+            {
+              data: (await readFile(outputPath)).toString("base64"),
+              mimeType: "image/png",
+              type: "image",
+              description: `${viewportName} Agent Outpost UI screenshot`,
+            },
+          ],
+          resultType: "success",
           status: "captured",
           artifactUrl: url,
           ...(absoluteUrl ? { absoluteUrl } : {}),
           source,
           viewport: viewportName,
+          scenario,
           width: viewport.width,
           height: viewport.height,
+          diagnostics,
+          consoleErrors,
+          pageErrors,
           message:
             "The screenshot was published to the conversation timeline as an inline image. " +
             "Do not repeat the artifact URL as plain text; tell the user the screenshot is shown above.",
         };
+        return result;
       } catch (error) {
         return {
           status: "failed",

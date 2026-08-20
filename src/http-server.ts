@@ -290,6 +290,42 @@ export function createWorkspacePreviewServer(publicDirectory: string): Server {
       payload: { content: "Follow-up after reviewing the deployment." },
     },
   ];
+  const transitionFixtures = {
+    working: [
+      {
+        id: 1,
+        kind: "user.message",
+        createdAt: new Date(0).toISOString(),
+        payload: { content: "Show the working transition." },
+      },
+      {
+        id: 2,
+        kind: "assistant.delta",
+        createdAt: new Date(1_000).toISOString(),
+        payload: { content: "This streamed delta must not be shown." },
+      },
+    ],
+    completed: [
+      {
+        id: 1,
+        kind: "user.message",
+        createdAt: new Date(0).toISOString(),
+        payload: { content: "Show the completed transition." },
+      },
+      {
+        id: 2,
+        kind: "assistant.delta",
+        createdAt: new Date(1_000).toISOString(),
+        payload: { content: "This streamed delta must not be shown." },
+      },
+      {
+        id: 3,
+        kind: "assistant.message",
+        createdAt: new Date(2_000).toISOString(),
+        payload: { content: "The completed assistant response appears exactly once." },
+      },
+    ],
+  } as const;
 
   return createServer(async (request, response) => {
     setSecurityHeaders(response);
@@ -302,7 +338,12 @@ export function createWorkspacePreviewServer(publicDirectory: string): Server {
       }
 
       if (request.method === "GET" && url.pathname === "/api/session") {
-        sendJson(response, 200, { state: "idle", events: previewEvents });
+        const scenario = url.searchParams.get("scenario");
+        const events =
+          scenario === "working" || scenario === "completed"
+            ? transitionFixtures[scenario]
+            : previewEvents;
+        sendJson(response, 200, { state: "idle", events });
         return;
       }
 
