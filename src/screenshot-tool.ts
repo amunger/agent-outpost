@@ -263,7 +263,10 @@ export function createScreenshotTool(
             type ElementSummary = {
               readonly tagName: string;
               readonly textContent: string | null;
+              readonly parentElement: ElementSummary | null;
+              hasAttribute(name: string): boolean;
               getAttribute(name: string): string | null;
+              getClientRects(): { readonly length: number };
             };
             const doc = (
               globalThis as unknown as {
@@ -281,7 +284,38 @@ export function createScreenshotTool(
               }
             ).document;
             const visibleText = doc.body.innerText.replace(/\s+/g, " ").trim();
+            const windowLike = globalThis as unknown as {
+              getComputedStyle(element: ElementSummary): {
+                readonly display: string;
+                readonly visibility: string;
+                readonly opacity: string;
+              };
+            };
             const labelled = Array.from(doc.querySelectorAll("[aria-label], [role]"))
+              .filter((element) => {
+                if (element.getClientRects().length === 0) {
+                  return false;
+                }
+                for (
+                  let current: ElementSummary | null = element;
+                  current;
+                  current = current.parentElement
+                ) {
+                  const style = windowLike.getComputedStyle(current);
+                  if (
+                    current.hasAttribute("hidden") ||
+                    current.hasAttribute("inert") ||
+                    current.getAttribute("aria-hidden") === "true" ||
+                    style.display === "none" ||
+                    style.visibility === "hidden" ||
+                    style.visibility === "collapse" ||
+                    style.opacity === "0"
+                  ) {
+                    return false;
+                  }
+                }
+                return true;
+              })
               .slice(0, 20)
               .map((element) => ({
                 tag: element.tagName.toLowerCase(),

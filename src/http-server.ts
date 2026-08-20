@@ -325,6 +325,66 @@ export function createWorkspacePreviewServer(publicDirectory: string): Server {
         payload: { content: "The completed assistant response appears exactly once." },
       },
     ],
+    cancelled: [
+      {
+        id: 1,
+        kind: "user.message",
+        createdAt: new Date(0).toISOString(),
+        payload: { content: "Cancel this transition." },
+      },
+      {
+        id: 2,
+        kind: "assistant.delta",
+        createdAt: new Date(1_000).toISOString(),
+        payload: { content: "This delta must be removed on cancellation." },
+      },
+      {
+        id: 3,
+        kind: "session.state",
+        createdAt: new Date(2_000).toISOString(),
+        payload: { state: "cancelling" },
+      },
+    ],
+    failed: [
+      {
+        id: 1,
+        kind: "user.message",
+        createdAt: new Date(0).toISOString(),
+        payload: { content: "Fail this transition." },
+      },
+      {
+        id: 2,
+        kind: "assistant.delta",
+        createdAt: new Date(1_000).toISOString(),
+        payload: { content: "This delta must be removed on failure." },
+      },
+      {
+        id: 3,
+        kind: "session.error",
+        createdAt: new Date(2_000).toISOString(),
+        payload: { message: "Preview failure." },
+      },
+    ],
+    idle: [
+      {
+        id: 1,
+        kind: "user.message",
+        createdAt: new Date(0).toISOString(),
+        payload: { content: "Finish idle without a response." },
+      },
+      {
+        id: 2,
+        kind: "assistant.delta",
+        createdAt: new Date(1_000).toISOString(),
+        payload: { content: "This delta must be removed on idle." },
+      },
+      {
+        id: 3,
+        kind: "session.state",
+        createdAt: new Date(2_000).toISOString(),
+        payload: { state: "idle" },
+      },
+    ],
   } as const;
 
   return createServer(async (request, response) => {
@@ -340,10 +400,18 @@ export function createWorkspacePreviewServer(publicDirectory: string): Server {
       if (request.method === "GET" && url.pathname === "/api/session") {
         const scenario = url.searchParams.get("scenario");
         const events =
-          scenario === "working" || scenario === "completed"
-            ? transitionFixtures[scenario]
+          scenario && scenario in transitionFixtures
+            ? transitionFixtures[scenario as keyof typeof transitionFixtures]
             : previewEvents;
-        sendJson(response, 200, { state: "idle", events });
+        const state =
+          scenario === "working"
+            ? "running"
+            : scenario === "cancelled"
+              ? "cancelling"
+              : scenario === "failed"
+                ? "failed"
+                : "idle";
+        sendJson(response, 200, { state, events });
         return;
       }
 

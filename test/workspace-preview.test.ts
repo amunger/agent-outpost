@@ -167,6 +167,8 @@ test("workspace preview keeps streamed deltas text-free in Working state", async
     assert.equal(await messages.nth(1).textContent().then((value) => value?.includes("Working…")), true);
     assert.equal(await messages.nth(1).textContent().then((value) => value?.includes("delta")), false);
     assert.equal(await page.locator(".message-working").count(), 1);
+    assert.equal(await page.locator("#state").getAttribute("data-state"), "running");
+    assert.equal(await page.locator("#state").textContent(), "Running");
   } finally {
     await browser.close();
     await new Promise<void>((resolve, reject) => {
@@ -205,6 +207,44 @@ test("workspace preview replaces Working state with exactly one completed respon
       await page.locator("body").evaluate((element) => element.scrollWidth <= element.clientWidth),
       true,
     );
+  } finally {
+    await browser.close();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test("workspace preview clears Working state on cancellation, failure, and idle without a final response", async (context) => {
+  if (!existsSync(chromium.executablePath())) {
+    context.skip("Playwright Chromium is not installed in this environment");
+    return;
+  }
+  const server = createWorkspacePreviewServer(join(process.cwd(), "public"));
+  const browser = await chromium.launch({ headless: true });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    for (const scenario of ["cancelled", "failed", "idle"] as const) {
+      const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+      await page.goto(`http://127.0.0.1:${port}/?scenario=${scenario}`);
+      await page.locator(".chat-entry").click();
+      await page.locator("#timeline > .message").first().waitFor({ state: "visible" });
+      assert.equal(await page.locator(".message-working").count(), 0);
+      assert.equal(
+        await page.locator("#timeline > .message").allTextContents().then((values) =>
+          values.some((value) => value.includes("delta")),
+        ),
+        false,
+      );
+      if (scenario === "failed") {
+        assert.equal(await page.locator('[data-role="error"]').count(), 1);
+      } else {
+        assert.equal(await page.locator('[data-role="error"]').count(), 0);
+      }
+      await page.close();
+    }
   } finally {
     await browser.close();
     await new Promise<void>((resolve, reject) => {
@@ -280,6 +320,24 @@ test("screenshot tool verifies workspace conversation scrolling with typed actio
     assert.match(result.textResultForLlm ?? "", /"consoleErrors":\[/);
     assert.ok(result.diagnostics);
     assert.equal(result.diagnostics.body.scrollWidth <= result.diagnostics.body.clientWidth, true);
+    const diagnostics = JSON.parse(result.textResultForLlm ?? "{}") as {
+      readonly domAccessibility?: {
+        readonly labelled?: readonly { readonly ariaLabel: string | null; readonly text: string }[];
+      };
+    };
+    assert.equal(
+      diagnostics.domAccessibility?.labelled?.some(
+        ({ ariaLabel, text }) =>
+          ariaLabel?.includes("Workspace preview") || text.includes("workspace-preview"),
+      ),
+      false,
+    );
+    assert.equal(
+      diagnostics.domAccessibility?.labelled?.some(
+        ({ ariaLabel }) => ariaLabel === "Message the agent",
+      ),
+      true,
+    );
     assert.equal(existsSync(join(artifactDirectory, result.artifactUrl.split("/").at(-1) ?? "")), true);
     assert.equal(eventStore.list().at(-1)?.kind, "assistant.artifact");
   } finally {

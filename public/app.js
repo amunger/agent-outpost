@@ -22,6 +22,17 @@ let autoScrollTimeline = true;
 let activeChatId;
 let chatViewGeneration = 0;
 
+function clearStreamingMessage() {
+  if (!streamingMessage) {
+    return;
+  }
+  streamingMessage.article.remove();
+  streamingMessage = undefined;
+  if (autoScrollTimeline) {
+    scrollTimelineToBottom();
+  }
+}
+
 function assertElement(element, selector) {
   if (!element) {
     throw new Error(`Required element not found: ${selector}`);
@@ -253,8 +264,12 @@ function handleEvent(event) {
       break;
     case "session.state":
       setState(event.payload.state);
+      if (["cancelling", "failed", "idle"].includes(event.payload.state)) {
+        clearStreamingMessage();
+      }
       break;
     case "session.error":
+      clearStreamingMessage();
       appendMessage("error", event.payload.message, event.createdAt);
       break;
     case "system.notice":
