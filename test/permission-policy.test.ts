@@ -144,6 +144,55 @@ test("permission policy allows read-only diff validation", async () => {
   assert.equal((await handler(request, invocation)).kind, "approve-once");
 });
 
+test("permission policy allows git's read-only no-pager inspection flag", async () => {
+  const request = {
+    kind: "shell",
+    fullCommandText: "git --no-pager status --short",
+    intention: "Inspect workspace changes",
+    commands: [{ identifier: "git", readOnly: true }],
+    commandSegments: [{ identifier: "git", fullCommandText: "git --no-pager status --short" }],
+    possiblePaths: [workspace],
+    possibleUrls: [],
+    hasWriteFileRedirection: false,
+    canOfferSessionApproval: false,
+  } satisfies PermissionRequest;
+
+  assert.deepEqual(await handler(request, invocation), { kind: "approve-once" });
+});
+
+test("permission policy allows read-only workspace searches", async () => {
+  const request = {
+    kind: "shell",
+    fullCommandText: "rg --files src",
+    intention: "Discover source files",
+    commands: [{ identifier: "rg", readOnly: true }],
+    commandSegments: [{ identifier: "rg", fullCommandText: "rg --files src" }],
+    possiblePaths: [workspace, resolve(workspace, "src")],
+    possibleUrls: [],
+    hasWriteFileRedirection: false,
+    canOfferSessionApproval: false,
+  } satisfies PermissionRequest;
+
+  assert.deepEqual(await handler(request, invocation), { kind: "approve-once" });
+});
+
+test("permission policy rejects ripgrep preprocessor execution", async () => {
+  const request = (fullCommandText: string): PermissionRequest => ({
+    kind: "shell",
+    fullCommandText,
+    intention: "Search source files",
+    commands: [{ identifier: "rg", readOnly: true }],
+    commandSegments: [{ identifier: "rg", fullCommandText }],
+    possiblePaths: [workspace, resolve(workspace, "src")],
+    possibleUrls: [],
+    hasWriteFileRedirection: false,
+    canOfferSessionApproval: false,
+  });
+
+  assert.equal((await handler(request("rg --pre cat pattern src"), invocation)).kind, "reject");
+  assert.equal((await handler(request("rg --pre=cat pattern src"), invocation)).kind, "reject");
+});
+
 test("permission policy rejects symlink escapes", async () => {
   const root = mkdtempSync(join(tmpdir(), "agent-outpost-policy-"));
   const isolatedWorkspace = join(root, "workspace");
