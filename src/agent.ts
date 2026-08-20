@@ -523,10 +523,10 @@ export class CopilotAgent implements AgentController {
       project.workspacePreview === "static-public"
         ? "Use capture_agent_outpost_screenshot with source workspace to validate unpublished UI changes, " +
           "including click, fill, scroll, and assertScroll browser actions, before publishing. " +
-          "Use source deployed for the current live UI; it safely permits chat navigation and timeline " +
-          "scrolling but rejects fill and mutation-capable selectors. " +
-          "For conversation scrolling, open .chat-entry and assert #timeline at bottom; scroll it to top, " +
-          "click #scroll-to-bottom, and assert #timeline at bottom again. It publishes the image directly into " +
+          "Use source deployed for the current live UI; it automatically selects the current scoped chat " +
+          "and permits only #timeline scroll/assertScroll actions and #scroll-to-bottom, while rejecting " +
+          "fill and escape-navigation selectors. For conversation scrolling, assert #timeline at bottom; " +
+          "scroll it to top, click #scroll-to-bottom, and assert #timeline at bottom again. It publishes the image directly into " +
           "the conversation, so do not repeat the artifact URL as plain text. "
         : "Workspace screenshot capture is not configured for this project; do not claim to have captured one. ";
     const commonConfig = {

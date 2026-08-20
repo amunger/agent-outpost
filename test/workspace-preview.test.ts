@@ -11,7 +11,7 @@ import { EventStore } from "../src/event-store.js";
 import { createWorkspacePreviewServer } from "../src/http-server.js";
 import {
   createScreenshotTool,
-  MAX_SCREENSHOT_BYTES,
+  MAX_MODEL_INPUT_IMAGE_BYTES,
   MAX_SCREENSHOT_HEIGHT,
   MAX_SCREENSHOT_WIDTH,
   validateScreenshotLimits,
@@ -412,22 +412,23 @@ test("screenshot tool reports unsafe deployed interactions without retrying the 
 
   try {
     assert.ok(tool.handler);
-    const actions = [{ type: "click", selector: "#send" }] as const;
-    const result = await tool.handler(
-      { source: "deployed", actions },
-      {
-        sessionId: "test",
-        toolCallId: "call-unsafe",
-        toolName: tool.name,
-        arguments: { source: "deployed", actions },
-      },
-    );
-
-    assert.deepEqual(result, {
-      status: "failed",
-      error: "Deployed clicks are not allowed on #send",
-      message: "The screenshot was not captured. Report this error instead of retrying unchanged.",
-    });
+    for (const [index, selector] of ["#send", ".chat-entry", "#back-to-chats"].entries()) {
+      const actions = [{ type: "click", selector }] as const;
+      const result = (await tool.handler(
+        { source: "deployed", actions },
+        {
+          sessionId: "test",
+          toolCallId: `call-unsafe-${index}`,
+          toolName: tool.name,
+          arguments: { source: "deployed", actions },
+        },
+      )) as { readonly status: string; readonly error?: string };
+      assert.equal(result.status, "failed");
+      assert.match(
+        result.error ?? "",
+        new RegExp(selector === "#send" ? "not allowed on #send" : "locked to chat"),
+      );
+    }
     assert.deepEqual(eventStore.list(), []);
   } finally {
     eventHub.close();
@@ -464,7 +465,16 @@ test("deployed screenshot capture selects only the scoped project chat", async (
     });
     assert.ok(tool.handler);
     const result = await tool.handler(
-      { source: "deployed", viewport: "mobile" },
+      {
+        source: "deployed",
+        viewport: "mobile",
+        actions: [
+          { type: "assertScroll", selector: "#timeline", position: "bottom" },
+          { type: "scroll", selector: "#timeline", position: "top" },
+          { type: "click", selector: "#scroll-to-bottom" },
+          { type: "assertScroll", selector: "#timeline", position: "bottom" },
+        ],
+      },
       {
         sessionId: "test",
         toolCallId: "call-scoped-valid",
@@ -490,9 +500,10 @@ test("screenshot limits reject oversized renders and raw PNGs before publication
     validateScreenshotLimits(MAX_SCREENSHOT_WIDTH + 1, 100),
     `Screenshot dimensions ${MAX_SCREENSHOT_WIDTH + 1}x100 exceed the maximum ${MAX_SCREENSHOT_WIDTH}x${MAX_SCREENSHOT_HEIGHT}`,
   );
+  assert.equal(validateScreenshotLimits(100, 100, MAX_MODEL_INPUT_IMAGE_BYTES), undefined);
   assert.equal(
-    validateScreenshotLimits(100, 100, MAX_SCREENSHOT_BYTES + 1),
-    `Screenshot PNG is ${MAX_SCREENSHOT_BYTES + 1} bytes; maximum is ${MAX_SCREENSHOT_BYTES} bytes`,
+    validateScreenshotLimits(100, 100, MAX_MODEL_INPUT_IMAGE_BYTES + 1),
+    `Screenshot PNG is ${MAX_MODEL_INPUT_IMAGE_BYTES + 1} bytes; maximum model input image size is ${MAX_MODEL_INPUT_IMAGE_BYTES} bytes`,
   );
   if (!existsSync(chromium.executablePath())) {
     context.skip("Playwright Chromium is not installed in this environment");

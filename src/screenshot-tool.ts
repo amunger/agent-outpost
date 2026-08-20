@@ -18,7 +18,7 @@ interface ScreenshotAction {
   readonly waitAfterMs?: number;
 }
 
-const deployedClickSelectors = new Set([".chat-entry", "#back-to-chats", "#scroll-to-bottom"]);
+const deployedClickSelectors = new Set(["#scroll-to-bottom"]);
 
 import type { EventStore } from "./event-store.js";
 import type { SseHub } from "./sse-hub.js";
@@ -45,7 +45,8 @@ export interface ScreenshotToolOptions {
 
 export const MAX_SCREENSHOT_WIDTH = 4096;
 export const MAX_SCREENSHOT_HEIGHT = 8192;
-export const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024;
+/** Maximum raw PNG bytes accepted by the currently supported Luna model input. */
+export const MAX_MODEL_INPUT_IMAGE_BYTES = 3_145_728;
 
 export function validateScreenshotLimits(
   width: number,
@@ -58,8 +59,11 @@ export function validateScreenshotLimits(
       `${MAX_SCREENSHOT_WIDTH}x${MAX_SCREENSHOT_HEIGHT}`
     );
   }
-  if (bytes !== undefined && bytes > MAX_SCREENSHOT_BYTES) {
-    return `Screenshot PNG is ${bytes} bytes; maximum is ${MAX_SCREENSHOT_BYTES} bytes`;
+  if (bytes !== undefined && bytes > MAX_MODEL_INPUT_IMAGE_BYTES) {
+    return (
+      `Screenshot PNG is ${bytes} bytes; maximum model input image size is ` +
+      `${MAX_MODEL_INPUT_IMAGE_BYTES} bytes`
+    );
   }
   return undefined;
 }
@@ -122,8 +126,9 @@ export function createScreenshotTool(
     description:
       "Capture either the deployed Agent Outpost UI or an isolated, read-only preview of the " +
       "current workspace UI. Workspace previews use the unpublished files in public/ and may " +
-      "perform browser actions before capture. Deployed captures permit only chat navigation " +
-      "and timeline scrolling actions. Deployed captures are scoped to the current chat " +
+      "perform browser actions before capture. Deployed captures automatically select the current " +
+      "scoped chat and permit only #timeline scroll/assertScroll actions and #scroll-to-bottom. " +
+      "Deployed captures are scoped to the current chat " +
       "before capture. Publishes the screenshot directly into the " +
       "conversation timeline as an image artifact and returns its URL for reference.",
     parameters: {
@@ -143,8 +148,8 @@ export function createScreenshotTool(
           maxItems: 20,
           description:
             "Ordered browser steps. Use scroll and assertScroll with #timeline and top/bottom " +
-            "to verify scrolling; click .chat-entry to open a chat. Deployed captures allow " +
-            "clicks only on .chat-entry, #back-to-chats, and #scroll-to-bottom.",
+            "to verify scrolling. Deployed captures automatically select the current scoped chat; " +
+            "they allow only #timeline scroll/assertScroll actions and #scroll-to-bottom.",
           items: {
             type: "object",
             additionalProperties: false,

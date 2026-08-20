@@ -30,6 +30,13 @@ tools, API paths, or artifact URLs.
    preview fixtures; the screenshot tool also returns the PNG to the selected
    model with a concise DOM/accessibility summary and browser console/page
    diagnostics.
+8. Deployed captures automatically select the current scoped chat; only
+   timeline scroll/assertScroll actions and the scroll-to-bottom control are
+   permitted. Workspace previews retain their broader read-only browser
+   actions.
+9. Model-visible PNG feedback is capped at 3,145,728 raw bytes, matching the
+   current Luna image-input limit; oversized captures fail instead of being
+   published without model feedback.
 
 ## Out of scope
 
