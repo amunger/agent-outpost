@@ -246,7 +246,14 @@ async function serveStatic(
   createReadStream(candidate).pipe(response);
 }
 
-export function createWorkspacePreviewServer(publicDirectory: string): Server {
+export interface WorkspacePreviewOptions {
+  readonly multiProject?: boolean;
+}
+
+export function createWorkspacePreviewServer(
+  publicDirectory: string,
+  options: WorkspacePreviewOptions = {},
+): Server {
   const previewEvents = [
     ...Array.from({ length: 30 }, (_, index) => ({
       id: index + 1,
@@ -386,6 +393,28 @@ export function createWorkspacePreviewServer(publicDirectory: string): Server {
       },
     ],
   } as const;
+  const previewChats = [
+    {
+      id: "workspace-preview",
+      projectId: "agent-outpost",
+      projectName: "Agent Outpost",
+      name: "Workspace preview",
+      repository: basename(join(publicDirectory, "..")),
+      lastUsedAt: new Date(0).toISOString(),
+    },
+    ...(options.multiProject
+      ? [
+          {
+            id: "other-project-chat",
+            projectId: "other-project",
+            projectName: "Other Project",
+            name: "Other project secret",
+            repository: "other/project",
+            lastUsedAt: new Date(0).toISOString(),
+          },
+        ]
+      : []),
+  ];
 
   return createServer(async (request, response) => {
     setSecurityHeaders(response);
@@ -417,16 +446,7 @@ export function createWorkspacePreviewServer(publicDirectory: string): Server {
 
       if (request.method === "GET" && url.pathname === "/api/chats") {
         sendJson(response, 200, {
-          chats: [
-            {
-              id: "workspace-preview",
-              projectId: "agent-outpost",
-              projectName: "Agent Outpost",
-              name: "Workspace preview",
-              repository: basename(join(publicDirectory, "..")),
-              lastUsedAt: new Date(0).toISOString(),
-            },
-          ],
+          chats: previewChats,
         });
         return;
       }

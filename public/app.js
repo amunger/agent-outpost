@@ -322,6 +322,8 @@ function renderChatEntry(chat) {
   const button = document.createElement("button");
   button.className = "chat-entry";
   button.type = "button";
+  button.dataset.chatId = chat.id;
+  button.dataset.projectId = chat.projectId;
   const title = document.createElement("strong");
   title.textContent = chat.name;
   const repository = document.createElement("span");
@@ -484,6 +486,8 @@ async function openChat(chat) {
     return;
   }
   showChatView();
+  chatView.dataset.chatId = chat.id;
+  chatView.dataset.projectId = chat.projectId;
   chatTitle.textContent = `${chat.name} · ${chat.projectName}`;
   autoScrollTimeline = true;
   const snapshot = await loadSession(chat.id);

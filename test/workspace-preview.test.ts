@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -9,7 +9,13 @@ import { chromium } from "playwright";
 
 import { EventStore } from "../src/event-store.js";
 import { createWorkspacePreviewServer } from "../src/http-server.js";
-import { createScreenshotTool } from "../src/screenshot-tool.js";
+import {
+  createScreenshotTool,
+  MAX_SCREENSHOT_BYTES,
+  MAX_SCREENSHOT_HEIGHT,
+  MAX_SCREENSHOT_WIDTH,
+  validateScreenshotLimits,
+} from "../src/screenshot-tool.js";
 import { SseHub } from "../src/sse-hub.js";
 
 test("workspace preview serves local assets with read-only API fixtures", async () => {
@@ -314,7 +320,7 @@ test("screenshot tool verifies workspace conversation scrolling with typed actio
       readonly diagnostics?: { readonly body: { readonly scrollWidth: number; readonly clientWidth: number } };
     };
 
-    assert.equal(result.source, "workspace");
+    assert.equal(result.source, "workspace", JSON.stringify(result));
     assert.equal(result.binaryResultsForLlm?.[0]?.mimeType, "image/png");
     assert.ok(result.binaryResultsForLlm?.[0]?.data.length);
     assert.match(result.textResultForLlm ?? "", /"consoleErrors":\[/);
@@ -382,7 +388,7 @@ test("workspace preview screenshot shows composer errors above the input", async
       },
     ) as { readonly status: string; readonly artifactUrl?: string };
 
-    assert.equal(result.status, "captured");
+    assert.equal(result.status, "captured", JSON.stringify(result));
     assert.ok(result.artifactUrl);
     assert.equal(existsSync(join(artifactDirectory, result.artifactUrl.split("/").at(-1) ?? "")), true);
   } finally {
@@ -422,6 +428,109 @@ test("screenshot tool reports unsafe deployed interactions without retrying the 
       error: "Deployed clicks are not allowed on #send",
       message: "The screenshot was not captured. Report this error instead of retrying unchanged.",
     });
+    assert.deepEqual(eventStore.list(), []);
+  } finally {
+    eventHub.close();
+    eventStore[Symbol.dispose]();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("deployed screenshot capture selects only the scoped project chat", async (context) => {
+  if (!existsSync(chromium.executablePath())) {
+    context.skip("Playwright Chromium is not installed in this environment");
+    return;
+  }
+  const directory = mkdtempSync(join(tmpdir(), "agent-outpost-screenshot-scope-"));
+  const artifactDirectory = join(directory, "artifacts");
+  const server = createWorkspacePreviewServer(join(process.cwd(), "public"), {
+    multiProject: true,
+  });
+  const eventStore = new EventStore(directory);
+  const eventHub = new SseHub();
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    const tool = createScreenshotTool({
+      artifactDirectory,
+      tailscaleUser: "owner@example.com",
+      workspacePublicDirectory: join(process.cwd(), "public"),
+      eventStore,
+      eventHub,
+      chatId: "workspace-preview",
+      projectId: "agent-outpost",
+      deployedBaseUrl: `http://127.0.0.1:${port}`,
+    });
+    assert.ok(tool.handler);
+    const result = await tool.handler(
+      { source: "deployed", viewport: "mobile" },
+      {
+        sessionId: "test",
+        toolCallId: "call-scoped-valid",
+        toolName: tool.name,
+        arguments: {},
+      },
+    ) as { readonly status: string; readonly textResultForLlm?: string };
+    assert.equal(result.status, "captured");
+    assert.equal(result.textResultForLlm?.includes("Other project secret"), false);
+    assert.equal(result.textResultForLlm?.includes("other/project"), false);
+  } finally {
+    eventHub.close();
+    eventStore[Symbol.dispose]();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("screenshot limits reject oversized renders and raw PNGs before publication", async (context) => {
+  assert.equal(
+    validateScreenshotLimits(MAX_SCREENSHOT_WIDTH + 1, 100),
+    `Screenshot dimensions ${MAX_SCREENSHOT_WIDTH + 1}x100 exceed the maximum ${MAX_SCREENSHOT_WIDTH}x${MAX_SCREENSHOT_HEIGHT}`,
+  );
+  assert.equal(
+    validateScreenshotLimits(100, 100, MAX_SCREENSHOT_BYTES + 1),
+    `Screenshot PNG is ${MAX_SCREENSHOT_BYTES + 1} bytes; maximum is ${MAX_SCREENSHOT_BYTES} bytes`,
+  );
+  if (!existsSync(chromium.executablePath())) {
+    context.skip("Playwright Chromium is not installed in this environment");
+    return;
+  }
+  const directory = mkdtempSync(join(tmpdir(), "agent-outpost-screenshot-size-"));
+  const publicDirectory = join(directory, "public");
+  const artifactDirectory = join(directory, "artifacts");
+  mkdirSync(publicDirectory);
+  writeFileSync(
+    join(publicDirectory, "index.html"),
+    '<!doctype html><svg width="5000" height="9000" aria-label="oversized render"></svg>',
+  );
+  const eventStore = new EventStore(directory);
+  const eventHub = new SseHub();
+  const tool = createScreenshotTool({
+    artifactDirectory,
+    tailscaleUser: "owner@example.com",
+    workspacePublicDirectory: publicDirectory,
+    eventStore,
+    eventHub,
+  });
+
+  try {
+    assert.ok(tool.handler);
+    const result = await tool.handler(
+      { source: "workspace", fullPage: true },
+      {
+        sessionId: "test",
+        toolCallId: "call-size",
+        toolName: tool.name,
+        arguments: {},
+      },
+    ) as { readonly status: string; readonly error?: string };
+    assert.equal(result.status, "failed");
+    assert.match(result.error ?? "", /exceed the maximum/);
+    assert.equal(existsSync(artifactDirectory), true);
+    assert.equal(readdirSync(artifactDirectory).length, 0);
     assert.deepEqual(eventStore.list(), []);
   } finally {
     eventHub.close();

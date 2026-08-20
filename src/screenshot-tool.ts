@@ -39,6 +39,29 @@ export interface ScreenshotToolOptions {
   readonly eventHub: SseHub;
   readonly workspacePublicDirectory: string;
   readonly chatId?: string;
+  readonly projectId?: string;
+  readonly deployedBaseUrl?: string;
+}
+
+export const MAX_SCREENSHOT_WIDTH = 4096;
+export const MAX_SCREENSHOT_HEIGHT = 8192;
+export const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024;
+
+export function validateScreenshotLimits(
+  width: number,
+  height: number,
+  bytes?: number,
+): string | undefined {
+  if (width > MAX_SCREENSHOT_WIDTH || height > MAX_SCREENSHOT_HEIGHT) {
+    return (
+      `Screenshot dimensions ${width}x${height} exceed the maximum ` +
+      `${MAX_SCREENSHOT_WIDTH}x${MAX_SCREENSHOT_HEIGHT}`
+    );
+  }
+  if (bytes !== undefined && bytes > MAX_SCREENSHOT_BYTES) {
+    return `Screenshot PNG is ${bytes} bytes; maximum is ${MAX_SCREENSHOT_BYTES} bytes`;
+  }
+  return undefined;
 }
 
 function cleanOldScreenshots(artifactDirectory: string): void {
@@ -100,7 +123,8 @@ export function createScreenshotTool(
       "Capture either the deployed Agent Outpost UI or an isolated, read-only preview of the " +
       "current workspace UI. Workspace previews use the unpublished files in public/ and may " +
       "perform browser actions before capture. Deployed captures permit only chat navigation " +
-      "and timeline scrolling actions. Publishes the screenshot directly into the " +
+      "and timeline scrolling actions. Deployed captures are scoped to the current chat " +
+      "before capture. Publishes the screenshot directly into the " +
       "conversation timeline as an image artifact and returns its URL for reference.",
     parameters: {
       type: "object",
@@ -161,6 +185,9 @@ export function createScreenshotTool(
             if (action.type === "fill") {
               throw new Error("Fill actions are not allowed against the deployed service");
             }
+            if (action.type === "click" && [".chat-entry", "#back-to-chats"].includes(action.selector)) {
+              throw new Error(`Deployed navigation is locked to chat ${options.chatId ?? "(unknown)"}`);
+            }
             if (action.type === "click" && !deployedClickSelectors.has(action.selector)) {
               throw new Error(`Deployed clicks are not allowed on ${action.selector}`);
             }
@@ -185,7 +212,7 @@ export function createScreenshotTool(
         const targetUrl =
           preview && scenario !== "default"
             ? `${preview.url}?scenario=${encodeURIComponent(scenario)}`
-            : preview?.url ?? "http://127.0.0.1:3000/";
+            : preview?.url ?? options.deployedBaseUrl ?? "http://127.0.0.1:3000/";
         let browser: Browser | undefined;
         let captured = false;
         let diagnostics: Record<string, unknown> | undefined;
@@ -212,6 +239,39 @@ export function createScreenshotTool(
             waitUntil: "domcontentloaded",
             timeout: 30_000,
           });
+          if (source === "deployed") {
+            if (!options.chatId) {
+              throw new Error("Deployed capture requires a current chat ID");
+            }
+            const escapedChatId = options.chatId.replace(/["\\]/g, "\\$&");
+            const chatEntry = page.locator(`.chat-entry[data-chat-id="${escapedChatId}"]`);
+            await chatEntry.waitFor({ state: "visible", timeout: 15_000 });
+            if (options.projectId) {
+              const entryProjectId = await chatEntry.getAttribute("data-project-id");
+              if (entryProjectId !== options.projectId) {
+                throw new Error(
+                  `Current chat ${options.chatId} belongs to project ${entryProjectId ?? "(unknown)"}, ` +
+                    `not ${options.projectId}`,
+                );
+              }
+            }
+            await chatEntry.click();
+            const activeChat = page.locator("#chat-view");
+            await activeChat.waitFor({ state: "visible", timeout: 15_000 });
+            const selected = await activeChat.evaluate((element) => ({
+              chatId: element.getAttribute("data-chat-id"),
+              projectId: element.getAttribute("data-project-id"),
+            }));
+            if (
+              selected.chatId !== options.chatId ||
+              (options.projectId !== undefined && selected.projectId !== options.projectId)
+            ) {
+              throw new Error(
+                `Deployed capture selected chat ${selected.chatId ?? "(unknown)"} ` +
+                  `in project ${selected.projectId ?? "(unknown)"}`,
+              );
+            }
+          }
           for (const action of actions) {
             const locator = page.locator(action.selector);
             await locator.waitFor({ state: "visible", timeout: 15_000 });
@@ -254,11 +314,53 @@ export function createScreenshotTool(
               await page.waitForTimeout(action.waitAfterMs);
             }
           }
+          const renderSize = await page.evaluate((fullPage) => {
+            const documentLike = globalThis as unknown as {
+              readonly document: {
+                readonly documentElement: {
+                  readonly scrollWidth: number;
+                  readonly scrollHeight: number;
+                };
+                readonly body: {
+                  readonly scrollWidth: number;
+                  readonly scrollHeight: number;
+                };
+              };
+              readonly innerWidth: number;
+              readonly innerHeight: number;
+            };
+            return {
+              width: fullPage
+                ? Math.max(
+                    documentLike.document.documentElement.scrollWidth,
+                    documentLike.document.body.scrollWidth,
+                  )
+                : documentLike.innerWidth,
+              height: fullPage
+                ? Math.max(
+                    documentLike.document.documentElement.scrollHeight,
+                    documentLike.document.body.scrollHeight,
+                  )
+                : documentLike.innerHeight,
+            };
+          }, value.fullPage ?? false);
+          const dimensionError = validateScreenshotLimits(renderSize.width, renderSize.height);
+          if (dimensionError) {
+            throw new Error(dimensionError);
+          }
           await page.screenshot({
             path: outputPath,
             fullPage: value.fullPage ?? false,
             type: "png",
           });
+          const byteError = validateScreenshotLimits(
+            renderSize.width,
+            renderSize.height,
+            lstatSync(outputPath).size,
+          );
+          if (byteError) {
+            throw new Error(byteError);
+          }
           diagnostics = await page.evaluate(() => {
             type ElementSummary = {
               readonly tagName: string;

@@ -516,6 +516,7 @@ export class CopilotAgent implements AgentController {
               eventHub: this.#eventHub,
               workspacePublicDirectory: join(project.workspace, "public"),
               chatId,
+              projectId: project.id,
             }),
           ];
     const screenshotInstructions =
