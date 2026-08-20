@@ -18,6 +18,27 @@ repository from outside the running Agent Outpost instance (for example, a
 separate Copilot coding agent working a GitHub issue or pull request against
 this codebase without operator tool access).
 
+## Ordinary UI-change requests
+
+For a normal UI-change request, use this loop whenever screenshot capture is
+available:
+
+1. **Inspect** the current UI and relevant workspace files.
+2. **Change** only the requested behavior or presentation.
+3. **Validate** with the relevant checks and interactions.
+4. **Visually reinspect** by capturing the changed UI and comparing it with
+   the requested result.
+
+Keep phone-facing prompts short and action-oriented. A screenshot artifact
+published into the conversation is visible to the phone user, but it is not
+automatically model-visible; describe or inspect the actual pixels available
+to the model separately, and do not claim to have seen an artifact that was
+only shown to the user.
+
+Example: “Make the send button blue” → inspect the current composer, change the
+button styling, validate the UI, then capture the composer again and report
+whether the actual button pixels match the request.
+
 ## Publish and deploy changes
 
 1. Confirm the chat names the intended registered project. Do not infer project
