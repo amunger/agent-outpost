@@ -319,12 +319,12 @@ select {
 }
 
 .message-working {
-  animation: reasoning-replace 0.22s ease-out;
+  animation: working-appear 0.22s ease-out;
 }
 
 .message-replaced {
-  animation: reasoning-replace 0.22s ease-out;
-  will-change: opacity, transform;
+  animation: response-replace 0.22s ease-out;
+  will-change: opacity;
 }
 
 .message-working div:last-child {
@@ -332,15 +332,23 @@ select {
   font-weight: 800;
 }
 
-@keyframes reasoning-replace {
+@keyframes working-appear {
   from {
     opacity: 0;
-    transform: translateY(0.35rem);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0);
+  }
+}
+
+@keyframes response-replace {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
   }
 }
 
