@@ -247,7 +247,7 @@ function handleEvent(event) {
         renderContent(text, event.payload.content);
         article.classList.remove("message-working");
         article.classList.add("message-replaced");
-        window.setTimeout(() => article.classList.remove("message-replaced"), 280);
+        window.setTimeout(() => article.classList.remove("message-replaced"), 220);
         streamingMessage = undefined;
       } else {
         appendMessage("assistant", event.payload.content, event.createdAt);
