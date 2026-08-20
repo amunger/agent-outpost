@@ -199,6 +199,16 @@ function deploymentCandidateEvents(eventStore: EventStore): Map<string, Deployme
   return candidates;
 }
 
+function terminalDeploymentCandidate(
+  eventStore: EventStore,
+  chatId: string,
+): (DeploymentCandidate & { status: "pending" | "approved" | "rejected" }) | undefined {
+  const lastEvent = eventStore.list({ chatId }).at(-1);
+  return lastEvent?.kind === "deployment.candidate"
+    ? lastEvent.payload as DeploymentCandidate & { status: "pending" | "approved" | "rejected" }
+    : undefined;
+}
+
 function sessionEvents(eventStore: EventStore, chatId: string, after: number) {
   const scoped = eventStore.list({ chatId, after });
   const global = eventStore.list({ chatId: null, after });
@@ -687,6 +697,12 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
       if (request.method === "POST" && url.pathname === "/api/session/messages") {
         const chatId = resolveChatId(url);
         const message = parseMessageBody(await readJsonBody(request));
+        if (terminalDeploymentCandidate(eventStore, chatId)) {
+          sendJson(response, 409, {
+            error: "A deployment candidate is the last message in this chat and must be approved before continuing",
+          });
+          return;
+        }
         eventStore.touchChat(chatId);
         await agent.send(message.content, chatId);
         sendJson(response, 202, { accepted: true });

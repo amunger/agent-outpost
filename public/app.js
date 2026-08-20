@@ -136,12 +136,16 @@ function appendDeploymentCandidate(candidate) {
   article.className = "message deployment-candidate";
   article.dataset.role = "assistant";
   article.dataset.candidateId = candidate.candidateId;
+  const details = document.createElement("details");
+  details.open = candidate.status === "pending";
+  const summary = document.createElement("summary");
   const title = document.createElement("h2");
   title.textContent = `${candidate.projectName || "Agent Outpost"} deployment candidate`;
+  summary.append(title);
   const description = document.createElement("p");
   description.textContent = candidate.description;
-  const summary = document.createElement("p");
-  summary.textContent = `${candidate.commitSha} · ${candidate.files.length} modified file${candidate.files.length === 1 ? "" : "s"}`;
+  const commitSummary = document.createElement("p");
+  commitSummary.textContent = `${candidate.commitSha} · ${candidate.files.length} modified file${candidate.files.length === 1 ? "" : "s"}`;
   const files = document.createElement("ul");
   candidate.files.forEach((file) => {
     const item = document.createElement("li");
@@ -162,15 +166,25 @@ function appendDeploymentCandidate(candidate) {
     button.textContent = "Approving…";
     try {
       await request(`/api/deployment-candidates/${encodeURIComponent(candidate.candidateId)}/approve`, { method: "POST" });
+      details.open = false;
     } catch (error) {
       button.disabled = false;
       button.textContent = "Deploy";
       errorElement.textContent = error instanceof Error ? error.message : String(error);
     }
   });
-  article.append(title, description, summary, files, diff, button);
+  const content = document.createElement("div");
+  content.append(description, commitSummary, files, diff, button);
+  details.append(summary, content);
+  article.append(details);
   timeline.append(article);
   if (autoScrollTimeline) scrollTimelineToBottom();
+}
+
+function collapseDeploymentCandidates() {
+  document.querySelectorAll(".deployment-candidate details").forEach((details) => {
+    details.open = false;
+  });
 }
 
 function appendMessage(role, content, createdAt, allowEmpty = false) {
@@ -315,6 +329,9 @@ function renderChatEntry(chat) {
       details.hidden = false;
     } catch (error) {
       errorElement.textContent = error instanceof Error ? error.message : String(error);
+      if (errorElement.textContent.includes("deployment candidate")) {
+        collapseDeploymentCandidates();
+      }
     }
   });
 

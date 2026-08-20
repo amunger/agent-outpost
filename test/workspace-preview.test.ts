@@ -128,6 +128,7 @@ test("workspace preview renders a deployment candidate approval card", async (co
       await card.locator("h2").textContent(),
       "Agent Outpost deployment candidate",
     );
+    await assert.equal(await card.locator("details").getAttribute("open"), "");
     await assert.equal(await card.locator("button").textContent(), "Deploy");
     await assert.equal(await card.locator("li").count(), 2);
   } finally {

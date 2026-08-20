@@ -323,6 +323,41 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
       headers: { "Tailscale-User-Login": "owner@example.com", Origin: baseUrl },
     });
     assert.equal(missingDelete.status, 404);
+
+    eventStore.append(
+      {
+        kind: "deployment.candidate",
+        payload: {
+          candidateId: "11111111-1111-4111-8111-111111111111",
+          projectId: "agent-outpost",
+          projectName: "Agent Outpost",
+          targetId: "agent-outpost",
+          integrationBranch: "agent/current",
+          chatId: "test",
+          commitSha: "0123456789abcdef0123456789abcdef01234567",
+          description: "Test deployment candidate",
+          files: [],
+          diffUrl: "/api/deployment-candidates/11111111-1111-4111-8111-111111111111/diff",
+          status: "pending",
+        },
+      },
+      "test",
+    );
+    const rejectedAfterCandidate = await fetch(`${baseUrl}/api/session/messages?chatId=test`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Tailscale-User-Login": "owner@example.com",
+        Origin: baseUrl,
+      },
+      body: JSON.stringify({ content: "message after deployment candidate" }),
+    });
+    assert.equal(rejectedAfterCandidate.status, 409);
+    assert.match(
+      ((await rejectedAfterCandidate.json()) as { error: string }).error,
+      /deployment candidate is the last message/,
+    );
+    assert.deepEqual(agent.messages, ["hello"]);
   } finally {
     eventHub.close();
     await new Promise<void>((resolve, reject) => {
