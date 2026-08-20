@@ -199,16 +199,6 @@ function deploymentCandidateEvents(eventStore: EventStore): Map<string, Deployme
   return candidates;
 }
 
-function terminalDeploymentCandidate(
-  eventStore: EventStore,
-  chatId: string,
-): (DeploymentCandidate & { status: "pending" | "approved" | "rejected" }) | undefined {
-  const lastEvent = eventStore.list({ chatId }).at(-1);
-  return lastEvent?.kind === "deployment.candidate"
-    ? lastEvent.payload as DeploymentCandidate & { status: "pending" | "approved" | "rejected" }
-    : undefined;
-}
-
 function sessionEvents(eventStore: EventStore, chatId: string, after: number) {
   const scoped = eventStore.list({ chatId, after });
   const global = eventStore.list({ chatId: null, after });
@@ -286,6 +276,18 @@ export function createWorkspacePreviewServer(publicDirectory: string): Server {
         diffUrl: "/api/deployment-candidates/11111111-1111-4111-8111-111111111111/diff",
         status: "pending",
       },
+    },
+    {
+      id: 32,
+      kind: "assistant.message",
+      createdAt: new Date(31_000).toISOString(),
+      payload: { content: "Overview of the change after the deployment candidate." },
+    },
+    {
+      id: 33,
+      kind: "user.message",
+      createdAt: new Date(32_000).toISOString(),
+      payload: { content: "Follow-up after reviewing the deployment." },
     },
   ];
 
@@ -697,12 +699,6 @@ export function createOutpostServer(dependencies: HttpServerDependencies) {
       if (request.method === "POST" && url.pathname === "/api/session/messages") {
         const chatId = resolveChatId(url);
         const message = parseMessageBody(await readJsonBody(request));
-        if (terminalDeploymentCandidate(eventStore, chatId)) {
-          sendJson(response, 409, {
-            error: "A deployment candidate is the last message in this chat and must be approved before continuing",
-          });
-          return;
-        }
         eventStore.touchChat(chatId);
         await agent.send(message.content, chatId);
         sendJson(response, 202, { accepted: true });

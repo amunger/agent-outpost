@@ -53,6 +53,27 @@ function scrollTimelineToBottom(behavior = "auto") {
   timeline.scrollTo({ top: timeline.scrollHeight, behavior });
 }
 
+function releasePinnedDeploymentCandidate() {
+  const card = document.querySelector('.deployment-candidate[data-pinned="true"]');
+  if (!card) {
+    return;
+  }
+  card.querySelector("details").open = false;
+  delete card.dataset.pinned;
+}
+
+function appendTimelineElement(element, role) {
+  if (role === "user") {
+    releasePinnedDeploymentCandidate();
+  }
+  const pinnedCard = document.querySelector('.deployment-candidate[data-pinned="true"]');
+  if (pinnedCard && role !== "user") {
+    timeline.insertBefore(element, pinnedCard);
+  } else {
+    timeline.append(element);
+  }
+}
+
 function updateScrollToBottomButton() {
   const distanceFromBottom = timeline.scrollHeight - timeline.clientHeight - timeline.scrollTop;
   const isFarFromBottom = timeline.clientHeight > 0 && distanceFromBottom > timeline.clientHeight;
@@ -125,7 +146,7 @@ function appendArtifactMessage(role, artifact, createdAt) {
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   article.append(metadata, caption, image, link);
-  timeline.append(article);
+  appendTimelineElement(article, "assistant");
   if (autoScrollTimeline) {
     scrollTimelineToBottom();
   }
@@ -138,6 +159,9 @@ function appendDeploymentCandidate(candidate) {
   article.dataset.candidateId = candidate.candidateId;
   const details = document.createElement("details");
   details.open = candidate.status === "pending";
+  if (candidate.status === "pending") {
+    article.dataset.pinned = "true";
+  }
   const summary = document.createElement("summary");
   const title = document.createElement("h2");
   title.textContent = `${candidate.projectName || "Agent Outpost"} deployment candidate`;
@@ -177,14 +201,8 @@ function appendDeploymentCandidate(candidate) {
   content.append(description, commitSummary, files, diff, button);
   details.append(summary, content);
   article.append(details);
-  timeline.append(article);
+  appendTimelineElement(article, "assistant");
   if (autoScrollTimeline) scrollTimelineToBottom();
-}
-
-function collapseDeploymentCandidates() {
-  document.querySelectorAll(".deployment-candidate details").forEach((details) => {
-    details.open = false;
-  });
 }
 
 function appendMessage(role, content, createdAt, allowEmpty = false) {
@@ -204,7 +222,7 @@ function appendMessage(role, content, createdAt, allowEmpty = false) {
   const text = document.createElement("div");
   renderContent(text, content);
   article.append(metadata, reasoningLabel, text);
-  timeline.append(article);
+  appendTimelineElement(article, role);
   if (autoScrollTimeline) {
     scrollTimelineToBottom();
   }
@@ -329,9 +347,6 @@ function renderChatEntry(chat) {
       details.hidden = false;
     } catch (error) {
       errorElement.textContent = error instanceof Error ? error.message : String(error);
-      if (errorElement.textContent.includes("deployment candidate")) {
-        collapseDeploymentCandidates();
-      }
     }
   });
 

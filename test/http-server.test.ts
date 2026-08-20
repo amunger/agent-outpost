@@ -343,7 +343,7 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
       },
       "test",
     );
-    const rejectedAfterCandidate = await fetch(`${baseUrl}/api/session/messages?chatId=test`, {
+    const messageAfterCandidate = await fetch(`${baseUrl}/api/session/messages?chatId=test`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -352,12 +352,8 @@ test("HTTP server enforces Tailscale identity and same-origin mutations", async 
       },
       body: JSON.stringify({ content: "message after deployment candidate" }),
     });
-    assert.equal(rejectedAfterCandidate.status, 409);
-    assert.match(
-      ((await rejectedAfterCandidate.json()) as { error: string }).error,
-      /deployment candidate is the last message/,
-    );
-    assert.deepEqual(agent.messages, ["hello"]);
+    assert.equal(messageAfterCandidate.status, 202);
+    assert.deepEqual(agent.messages, ["hello", "message after deployment candidate"]);
   } finally {
     eventHub.close();
     await new Promise<void>((resolve, reject) => {

@@ -39,7 +39,7 @@ test("workspace preview serves local assets with read-only API fixtures", async 
       readonly events: readonly unknown[];
     };
     assert.equal(sessionBody.state, "idle");
-    assert.equal(sessionBody.events.length, 31);
+    assert.equal(sessionBody.events.length, 33);
 
     const chats = await fetch(`${baseUrl}/api/chats`);
     const chatsBody = await chats.json() as { readonly chats: readonly unknown[] };
@@ -128,7 +128,14 @@ test("workspace preview renders a deployment candidate approval card", async (co
       await card.locator("h2").textContent(),
       "Agent Outpost deployment candidate",
     );
-    await assert.equal(await card.locator("details").getAttribute("open"), "");
+    await assert.equal(await card.locator("details").getAttribute("open"), null);
+    await assert.equal(await card.getAttribute("data-pinned"), null);
+    const messages = page.locator("#timeline > .message");
+    await assert.equal(
+      await messages.nth(31).getAttribute("data-candidate-id"),
+      await card.getAttribute("data-candidate-id"),
+    );
+    await assert.equal(await messages.nth(32).getAttribute("data-role"), "user");
     await assert.equal(await card.locator("button").textContent(), "Deploy");
     await assert.equal(await card.locator("li").count(), 2);
   } finally {
