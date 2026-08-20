@@ -183,14 +183,18 @@ function appendMessage(role, content, createdAt, allowEmpty = false) {
   article.dataset.role = role;
   const metadata = document.createElement("small");
   metadata.textContent = `${role === "user" ? "You" : role === "error" ? "Error" : "Agent"} · ${new Date(createdAt).toLocaleTimeString()}`;
+  const reasoningLabel = document.createElement("span");
+  reasoningLabel.className = "reasoning-label";
+  reasoningLabel.textContent = "reasoning…";
+  reasoningLabel.hidden = true;
   const text = document.createElement("div");
   renderContent(text, content);
-  article.append(metadata, text);
+  article.append(metadata, reasoningLabel, text);
   timeline.append(article);
   if (autoScrollTimeline) {
     scrollTimelineToBottom();
   }
-  return text;
+  return { article, text, reasoningLabel };
 }
 
 function handleEvent(event) {
@@ -200,7 +204,12 @@ function handleEvent(event) {
       break;
     case "assistant.message":
       if (streamingMessage) {
-        renderContent(streamingMessage, event.payload.content);
+        const { article, text, reasoningLabel } = streamingMessage;
+        renderContent(text, event.payload.content);
+        article.classList.remove("message-reasoning");
+        article.classList.add("message-replaced");
+        reasoningLabel.hidden = true;
+        window.setTimeout(() => article.classList.remove("message-replaced"), 280);
         streamingMessage = undefined;
       } else {
         appendMessage("assistant", event.payload.content, event.createdAt);
@@ -209,8 +218,10 @@ function handleEvent(event) {
     case "assistant.delta":
       if (!streamingMessage) {
         streamingMessage = appendMessage("assistant", "", event.createdAt, true);
+        streamingMessage.article.classList.add("message-reasoning");
+        streamingMessage.reasoningLabel.hidden = false;
       }
-      streamingMessage.append(document.createTextNode(event.payload.content));
+      streamingMessage.text.append(document.createTextNode(event.payload.content));
       if (autoScrollTimeline) {
         scrollTimelineToBottom();
       }
