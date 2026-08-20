@@ -472,6 +472,8 @@ function scrollTimelineAfterLayout() {
 function showChatList() {
   chatViewGeneration += 1;
   closeEvents();
+  delete chatView.dataset.chatId;
+  delete chatView.dataset.loadedChatId;
   chatView.hidden = true;
   chatList.hidden = false;
   void loadChats();
@@ -481,6 +483,7 @@ async function openChat(chat) {
   const generation = chatViewGeneration + 1;
   chatViewGeneration = generation;
   activeChatId = chat.id;
+  delete chatView.dataset.loadedChatId;
   await request(`/api/chats/${encodeURIComponent(chat.id)}/select`, { method: "POST" });
   if (generation !== chatViewGeneration || activeChatId !== chat.id) {
     return;
@@ -497,6 +500,10 @@ async function openChat(chat) {
   timeline.replaceChildren();
   snapshot.events.forEach(handleEvent);
   setState(snapshot.state);
+  if (generation !== chatViewGeneration || activeChatId !== chat.id) {
+    return;
+  }
+  chatView.dataset.loadedChatId = chat.id;
   autoScrollTimeline = true;
   scrollTimelineAfterLayout();
   connectEvents(snapshot.events.at(-1)?.id || 0, chat.id);

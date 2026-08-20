@@ -495,6 +495,54 @@ test("deployed screenshot capture selects only the scoped project chat", async (
   }
 });
 
+test("deployed screenshot capture waits for the scoped session load marker", async (context) => {
+  if (!existsSync(chromium.executablePath())) {
+    context.skip("Playwright Chromium is not installed in this environment");
+    return;
+  }
+  const directory = mkdtempSync(join(tmpdir(), "agent-outpost-screenshot-session-delay-"));
+  const artifactDirectory = join(directory, "artifacts");
+  const server = createWorkspacePreviewServer(join(process.cwd(), "public"), {
+    sessionDelayMs: 500,
+  });
+  const eventStore = new EventStore(directory);
+  const eventHub = new SseHub();
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    const tool = createScreenshotTool({
+      artifactDirectory,
+      tailscaleUser: "owner@example.com",
+      workspacePublicDirectory: join(process.cwd(), "public"),
+      eventStore,
+      eventHub,
+      chatId: "workspace-preview",
+      projectId: "agent-outpost",
+      deployedBaseUrl: `http://127.0.0.1:${port}`,
+    });
+    assert.ok(tool.handler);
+    const result = (await tool.handler(
+      { source: "deployed", viewport: "mobile" },
+      {
+        sessionId: "test",
+        toolCallId: "call-session-delay",
+        toolName: tool.name,
+        arguments: {},
+      },
+    )) as { readonly status: string; readonly textResultForLlm?: string };
+    assert.equal(result.status, "captured");
+    assert.match(result.textResultForLlm ?? "", /Preview message/);
+  } finally {
+    eventHub.close();
+    eventStore[Symbol.dispose]();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("screenshot limits reject oversized renders and raw PNGs before publication", async (context) => {
   assert.equal(
     validateScreenshotLimits(MAX_SCREENSHOT_WIDTH + 1, 100),

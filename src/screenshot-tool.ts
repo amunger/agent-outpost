@@ -263,6 +263,21 @@ export function createScreenshotTool(
             await chatEntry.click();
             const activeChat = page.locator("#chat-view");
             await activeChat.waitFor({ state: "visible", timeout: 15_000 });
+            await page.waitForFunction(
+              (chatId) => {
+                const documentLike = globalThis as unknown as {
+                  readonly document: {
+                    querySelector(selector: string):
+                      | { readonly dataset: Record<string, string> }
+                      | null;
+                  };
+                };
+                const view = documentLike.document.querySelector("#chat-view");
+                return view?.dataset.chatId === chatId && view.dataset.loadedChatId === chatId;
+              },
+              options.chatId,
+              { timeout: 15_000 },
+            );
             const selected = await activeChat.evaluate((element) => ({
               chatId: element.getAttribute("data-chat-id"),
               projectId: element.getAttribute("data-project-id"),

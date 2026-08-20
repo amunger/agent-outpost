@@ -248,6 +248,7 @@ async function serveStatic(
 
 export interface WorkspacePreviewOptions {
   readonly multiProject?: boolean;
+  readonly sessionDelayMs?: number;
 }
 
 export function createWorkspacePreviewServer(
@@ -427,6 +428,9 @@ export function createWorkspacePreviewServer(
       }
 
       if (request.method === "GET" && url.pathname === "/api/session") {
+        if (options.sessionDelayMs) {
+          await new Promise((resolve) => setTimeout(resolve, options.sessionDelayMs));
+        }
         const scenario = url.searchParams.get("scenario");
         const events =
           scenario && scenario in transitionFixtures
