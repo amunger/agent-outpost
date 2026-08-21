@@ -18,16 +18,18 @@
           </div>
           <span class="state">Server</span>
         </header>
-        <details class="resources">
-          <summary>Server diagnostics</summary>
-        <div class="resource-grid" aria-live="polite">
+        <section class="resources">
+          <button id="diagnostics-toggle" class="resources-toggle" type="button" aria-expanded="false" aria-controls="diagnostics-panel">
+            Server diagnostics
+          </button>
+        <div id="diagnostics-panel" class="resource-grid" aria-live="polite" hidden>
           <div><span>CPU</span><strong id="cpu">--</strong></div>
           <div><span>Memory</span><strong id="memory">--</strong></div>
           <div><span>Disk</span><strong id="disk">--</strong></div>
           <div><span>Load</span><strong id="load">--</strong></div>
           <div><span>Last deployment</span><strong id="last-deployment">--</strong></div>
         </div>
-        </details>
+        </section>
         <form id="new-chat-form" class="new-chat-form">
           <label for="project-select">Create a new chat</label>
           <div class="new-chat-row">

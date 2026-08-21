@@ -2,6 +2,8 @@ const chatList = document.querySelector("#chat-list");
 const chatView = document.querySelector("#chat-view");
 const chatEntries = document.querySelector("#chat-entries");
 const diagnostics = document.querySelector(".resources");
+const diagnosticsToggle = document.querySelector("#diagnostics-toggle");
+const diagnosticsPanel = document.querySelector("#diagnostics-panel");
 const newChatForm = document.querySelector("#new-chat-form");
 const projectSelect = document.querySelector("#project-select");
 const backToChats = document.querySelector("#back-to-chats");
@@ -45,6 +47,8 @@ assertElement(chatList, "#chat-list");
 assertElement(chatView, "#chat-view");
 assertElement(chatEntries, "#chat-entries");
 assertElement(diagnostics, ".resources");
+assertElement(diagnosticsToggle, "#diagnostics-toggle");
+assertElement(diagnosticsPanel, "#diagnostics-panel");
 assertElement(newChatForm, "#new-chat-form");
 assertElement(projectSelect, "#project-select");
 assertElement(backToChats, "#back-to-chats");
@@ -61,9 +65,10 @@ assertElement(modelButton, "#model-button");
 assertElement(modelDialog, "#model-dialog");
 assertElement(modelSelect, "#model-select");
 assertElement(saveModelButton, "#save-model");
-diagnostics.open = false;
-window.addEventListener("pageshow", () => {
-  diagnostics.open = false;
+diagnosticsToggle.addEventListener("click", () => {
+  const expanded = diagnosticsToggle.getAttribute("aria-expanded") === "true";
+  diagnosticsToggle.setAttribute("aria-expanded", String(!expanded));
+  diagnosticsPanel.hidden = expanded;
 });
 
 function scrollTimelineToBottom(behavior = "auto") {

@@ -272,11 +272,30 @@ select {
   background: rgb(15 23 42 / 80%);
 }
 
-.resources summary {
+.resources-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
   min-height: 44px;
   padding: 0.75rem;
   cursor: pointer;
+  border: 0;
+  border-radius: 0.8rem;
+  color: #f8fafc;
+  background: transparent;
+  text-align: left;
   font-weight: 700;
+}
+
+.resources-toggle::after {
+  content: "+";
+  color: #94a3b8;
+  font-size: 1.2rem;
+}
+
+.resources-toggle[aria-expanded="true"]::after {
+  content: "−";
 }
 
 .resource-grid {
