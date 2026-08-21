@@ -436,7 +436,12 @@ function renderChatEntry(chat) {
 
 async function loadChats() {
   const response = await request("/api/chats");
-  chatEntries.replaceChildren(...response.chats.map(renderChatEntry));
+  const chats = [...response.chats].sort((left, right) => {
+    const leftTimestamp = left.lastUsedAt ? Date.parse(left.lastUsedAt) : Number.NEGATIVE_INFINITY;
+    const rightTimestamp = right.lastUsedAt ? Date.parse(right.lastUsedAt) : Number.NEGATIVE_INFINITY;
+    return rightTimestamp - leftTimestamp || left.id.localeCompare(right.id);
+  });
+  chatEntries.replaceChildren(...chats.map(renderChatEntry));
 }
 
 async function loadProjects() {
