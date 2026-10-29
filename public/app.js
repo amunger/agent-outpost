@@ -219,8 +219,10 @@ function appendDeploymentCandidate(candidate) {
       errorElement.textContent = error instanceof Error ? error.message : String(error);
     }
   });
+  const errorElement = document.createElement("p");
+  errorElement.className = "error";
   const content = document.createElement("div");
-  content.append(description, commitSummary, files, diff, button);
+  content.append(description, commitSummary, files, diff, button, errorElement);
   details.append(summary, content);
   article.append(details);
   appendTimelineElement(article, "assistant");
